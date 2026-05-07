@@ -200,11 +200,13 @@
       const n = group.querySelectorAll(asel('checkboxes') + ' input[type="checkbox"]:checked').length;
       if (n > 0) {
         btn.setAttribute('data-kw-count', n);
+        group.classList.add('gradient-border');
         // If the trigger contains a [data-kw-count-display] element, write the number into it.
         const display = btn.querySelector('[data-kw-count-display]');
         if (display) display.textContent = n;
       } else {
         btn.removeAttribute('data-kw-count');
+        group.classList.remove('gradient-border');
         const display = btn.querySelector('[data-kw-count-display]');
         if (display) display.textContent = '';
       }
