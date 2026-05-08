@@ -1,12 +1,14 @@
 /**
- * kw-announcement v1.0.0
- * See README.md for attribute API.
+ * kw-announcement v1.1.0
+ * See README.md for attribute API and instructions.md for setup.
  */
 (function (win, doc) {
   'use strict';
 
+  // Guard against double-initialisation (e.g. script loaded twice).
   if (win.kwAnnouncement) return;
 
+  // currentScript is only accessible synchronously during script execution.
   const _cs = doc.currentScript;
   const DEBUG = (_cs?.hasAttribute('data-debug') ?? false) || !!win.kwAnnouncementDebug;
 
@@ -14,15 +16,39 @@
   function warn(...a) { if (DEBUG) console.warn('[kw-announcement]', ...a); }
 
   /* ── Constants ──────────────────────────────────────────────────────────── */
-  const VERSION     = '1.0.0';
+  const VERSION     = '1.1.0';
   const STORAGE_KEY = 'kw-announcement-dismissed';
   const ATTR        = 'data-kw-announcement';
+  // Dismissed banners re-appear after 30 days so stale announcements never
+  // permanently block future content sharing the same ID prefix.
+  const EXPIRY_MS   = 30 * 24 * 60 * 60 * 1000;
 
   /* ── Storage helpers ────────────────────────────────────────────────────── */
-  function getDismissed() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+  // Returns the raw stored array, migrating any legacy plain-string entries to
+  // the {id, at} object format introduced in v1.1.0.
+  function _loadRaw() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map(entry =>
+        typeof entry === 'string'
+          // Legacy format — treat as dismissed right now so it still hides on
+          // first load but will expire in 30 days from the migration moment.
+          ? { id: entry, at: Date.now() }
+          : entry
+      );
+    } catch { return []; }
   }
 
+  // Returns the set of IDs that are currently dismissed and not yet expired.
+  function getDismissed() {
+    const now = Date.now();
+    return _loadRaw()
+      .filter(e => (now - e.at) < EXPIRY_MS)
+      .map(e => e.id);
+  }
+
+  // Persists the full object array (with timestamps) to localStorage.
   function saveDismissed(list) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch {}
   }
@@ -35,6 +61,8 @@
   }
 
   /* ── Core: initialise a single banner ──────────────────────────────────── */
+  // WeakSet prevents re-initialising banners that have already been wired up
+  // (e.g. when the MutationObserver fires for an element already in the DOM).
   const initialized = new WeakSet();
 
   function initBanner(banner) {
@@ -48,14 +76,14 @@
 
     initialized.add(banner);
 
-    // Already dismissed → hide immediately
+    // Check expiry-aware dismissed list — hide immediately if already dismissed.
     if (getDismissed().includes(id)) {
       banner.hidden = true;
-      log(`"${id}": previously dismissed — hiding`);
+      log(`"${id}": previously dismissed (within expiry window) — hiding`);
       return;
     }
 
-    // Scheduled window check
+    // Scheduling window: hide the banner if we're outside [start, end].
     const now   = Date.now();
     const start = parseAttrDate(banner.getAttribute('data-kw-announcement-start'));
     const end   = parseAttrDate(banner.getAttribute('data-kw-announcement-end'));
@@ -73,7 +101,7 @@
 
     banner.hidden = false;
 
-    // Wire up dismiss button(s)
+    // Wire dismiss trigger(s) — any descendant with the dismiss attribute.
     banner.querySelectorAll('[data-kw-announcement-dismiss]').forEach((btn) => {
       btn.addEventListener('click', () => dismissBanner(id, banner));
     });
@@ -84,10 +112,11 @@
 
   /* ── Dismiss ────────────────────────────────────────────────────────────── */
   function dismissBanner(id, banner) {
-    const list = getDismissed();
-    if (!list.includes(id)) {
-      list.push(id);
-      saveDismissed(list);
+    // Load current raw list (non-expired entries only) then append this dismissal.
+    const raw = _loadRaw().filter(e => (Date.now() - e.at) < EXPIRY_MS);
+    if (!raw.some(e => e.id === id)) {
+      raw.push({ id, at: Date.now() });
+      saveDismissed(raw);
     }
     banner.hidden = true;
     log(`"${id}": dismissed`);
@@ -106,7 +135,7 @@
     log('init: starting');
     scan();
 
-    // Watch for CMS / React-rendered banners added after initial parse
+    // Watch for banners injected after initial parse (CMS / React hydration).
     new MutationObserver((mutations) => {
       for (const m of mutations) {
         for (const node of m.addedNodes) {
@@ -130,22 +159,21 @@
   win.kwAnnouncement = {
     version: VERSION,
 
-    // Programmatically dismiss a banner by id
+    // Programmatically dismiss a banner by id.
     dismiss(id) {
       const banner = doc.querySelector(`[${ATTR}="${id}"]`);
       if (banner) { dismissBanner(id, banner); return; }
-      // Banner not in DOM yet — write to storage directly so it stays dismissed
-      const list = getDismissed();
-      if (!list.includes(id)) { list.push(id); saveDismissed(list); }
+      // Banner not in DOM — write directly to storage so it stays dismissed on next render.
+      const raw = _loadRaw().filter(e => (Date.now() - e.at) < EXPIRY_MS);
+      if (!raw.some(e => e.id === id)) { raw.push({ id, at: Date.now() }); saveDismissed(raw); }
       log(`"${id}": dismissed (no element found, wrote to storage)`);
     },
 
-    // Clear one id (or all) from dismissed storage and re-scan
+    // Clear one id (or all) from dismissed storage and re-show the banner(s).
     reset(id) {
       if (id) {
-        saveDismissed(getDismissed().filter((d) => d !== id));
+        saveDismissed(_loadRaw().filter(e => e.id !== id));
         log(`reset: cleared "${id}"`);
-        // Re-init the banner if it's in the DOM
         const banner = doc.querySelector(`[${ATTR}="${id}"]`);
         if (banner) { initialized.delete(banner); initBanner(banner); }
       } else {
@@ -155,7 +183,7 @@
       }
     },
 
-    // Re-scan the page (useful after CMS content loads)
+    // Re-scan the page — useful after CMS content loads.
     scan,
   };
 
