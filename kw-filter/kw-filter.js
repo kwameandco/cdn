@@ -1,6 +1,15 @@
 /**
- * kw-filter v1.5.0
+ * kw-filter v1.6.0
  * See README.md for attribute API. See instructions.md for setup.
+ *
+ * v1.6.0 additions (all opt-in, zero breaking changes):
+ *   data-kw-filter-search-debounce="200"  — debounce search inputs (ms)
+ *   data-kw-filter-search-min="2"         — minimum chars before filtering
+ *   data-kw-filter-search-fuzzy="0.3"     — fuzzy threshold 0–1 (0 = off)
+ *   data-kw-filter-search-shortcut="true" — '/' key focuses this input
+ *   [data-kw-filter-option-count]         — live count per checkbox label
+ *   [data-kw-filter-results-text]         — "{matched} of {total}" template
+ *   data-kw-filter-infinite-scroll="true" — IntersectionObserver load-more
  */
 (function (win, doc) {
   'use strict';
@@ -26,7 +35,7 @@
   function warn(...a) { if (DEBUG) console.warn('[kw-filter]', ...a); }
 
   /* ── Constants ──────────────────────────────────────────────────────────── */
-  const VERSION = '1.5.0';
+  const VERSION = '1.6.0';
   const NP = 'data-kw-filter-';
   const LP = 'sift-';
 
@@ -82,6 +91,45 @@
     },
     // radio reuses matchers.select (exact match)
     // range handled inline in runFilter (needs separate min + max)
+  };
+
+  /* ── Fuzzy search ───────────────────────────────────────────────────────── */
+  // Row-optimised Levenshtein — O(n) space. Only called when search-fuzzy is set.
+  function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    if (!m) return n;
+    if (!n) return m;
+    const row = Array.from({ length: n + 1 }, (_, i) => i);
+    for (let i = 0; i < m; i++) {
+      let prev = row[0];
+      row[0] = i + 1;
+      for (let j = 0; j < n; j++) {
+        const tmp  = row[j + 1];
+        row[j + 1] = a[i] === b[j] ? prev : 1 + Math.min(prev, row[j], row[j + 1]);
+        prev = tmp;
+      }
+    }
+    return row[n];
+  }
+
+  // All space-separated query tokens must appear in at least one word of the
+  // target text — exactly or within Math.ceil(token.length * threshold) edits.
+  // Exact substring always wins so clean matches are never penalised.
+  matchers.fuzzy = function(iv, fv, threshold) {
+    if (!fv) return true;
+    const q = fv.toLowerCase().trim();
+    const t = iv.toLowerCase();
+    if (!q || t.includes(q)) return true;
+    const qTokens = q.split(/\s+/).filter(Boolean);
+    const tWords  = t.split(/\W+/).filter(Boolean);
+    return qTokens.every(tok => {
+      if (t.includes(tok)) return true;
+      const maxErr = Math.ceil(tok.length * threshold);
+      if (maxErr === 0) return false;
+      return tWords.some(w =>
+        Math.abs(w.length - tok.length) <= maxErr && levenshtein(tok, w) <= maxErr
+      );
+    });
   };
 
   /* ── Tag value helper ──────────────────────────────────────────────────── */
@@ -198,16 +246,29 @@
       const btn = group.querySelector('.filter-trigger');
       if (!btn) return;
       const n = group.querySelectorAll(asel('checkboxes') + ' input[type="checkbox"]:checked').length;
+
+      // Use an explicitly-placed [data-kw-count-display] if present.
+      // Otherwise lazily inject one inside the trigger's first <span> so
+      // it sits inline with the label text on flex/space-between layouts,
+      // avoiding the count element being pushed out between label and icon.
+      let display = btn.querySelector('[data-kw-count-display]');
+      if (!display) {
+        const labelSpan = btn.querySelector('span');
+        if (labelSpan) {
+          display = doc.createElement('span');
+          display.setAttribute('data-kw-count-display', '');
+          display.style.marginLeft = '0.25rem';
+          labelSpan.appendChild(display);
+        }
+      }
+
       if (n > 0) {
         btn.setAttribute('data-kw-count', n);
         group.classList.add('gradient-border');
-        // If the trigger contains a [data-kw-count-display] element, write the number into it.
-        const display = btn.querySelector('[data-kw-count-display]');
         if (display) display.textContent = n;
       } else {
         btn.removeAttribute('data-kw-count');
         group.classList.remove('gradient-border');
-        const display = btn.querySelector('[data-kw-count-display]');
         if (display) display.textContent = '';
       }
     });
@@ -485,6 +546,7 @@
     const originalOrder = Array.from(wrapper.children).filter(el => !ha(el, 'no-results') && !ha(el, 'ignore'));
     let visibleCount = itemsToShow;
     let currentSort  = null;
+    let _io = null, _sentinel = null; // infinite scroll — set up after event bindings
 
     const parent = wrapper.parentElement || doc.body;
 
@@ -503,10 +565,11 @@
     const rangeWrappers = qa(doc, 'range');
     const toggleInputs  = qa(doc, 'toggle');
     const sortSelects   = qa(doc, 'sort', 'true');
-    const countEls      = scopedState('count');
-    const resetBtns     = scopedState('reset', 'true');
-    const loadMoreBtns  = scopedState('load-more-button');
-    const pillsConts    = scopedState('pills');
+    const countEls       = scopedState('count');
+    const resetBtns      = scopedState('reset', 'true');
+    const loadMoreBtns   = scopedState('load-more-button');
+    const pillsConts     = scopedState('pills');
+    const resultsTextEls = scopedState('results-text');
 
     log(`initWrapper: controls — search:${searchInputs.length} select:${selectEls.length} checkboxes:${cbWrappers.length} radio:${radioWrappers.length} range:${rangeWrappers.length} toggle:${toggleInputs.length} sort:${sortSelects.length} | items:${originalOrder.length}`);
 
@@ -661,6 +724,94 @@
       }
     }
 
+    // ── testItem ──────────────────────────────────────────────────────────
+    // Returns true if `item` passes every active filter. Pass skipCbw to
+    // exclude one checkbox group (used by updateOptionCounts).
+    function testItem(item, { skipCbw = null } = {}) {
+      // Text search — honours search-min threshold and optional fuzzy mode.
+      for (const inp of searchInputs) {
+        const fv = inp.value;
+        if (!fv) continue;
+        const min = parseInt(ga(inp, 'search-min') || '0', 10);
+        if (min > 0 && fv.length < min) continue;
+        const tagEl = item.querySelector(asel('search-tag', ga(inp, 'search')));
+        if (!tagEl) continue;
+        const fuzzy = parseFloat(ga(inp, 'search-fuzzy') || '0');
+        const pass  = fuzzy > 0
+          ? matchers.fuzzy(getTagValue(tagEl), fv, fuzzy)
+          : matchers.text(getTagValue(tagEl), fv);
+        if (!pass) return false;
+      }
+      // Single-select
+      for (const sel of selectEls) {
+        const fv = sel.value;
+        if (!fv) continue;
+        const tagEl = item.querySelector(asel('select-tag', ga(sel, 'select')));
+        if (!tagEl) continue;
+        if (!matchers.select(getTagValue(tagEl), fv)) return false;
+      }
+      // Checkbox groups (skip one group when computing per-option counts)
+      for (const cbw of cbWrappers) {
+        if (cbw === skipCbw) continue;
+        const fvs = Array.from(cbw.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
+        if (!fvs.length) continue;
+        const tagEl = item.querySelector(asel('checkbox-tag', ga(cbw, 'checkboxes')));
+        if (!tagEl) continue;
+        if (!matchers.checkbox(getTagValue(tagEl), fvs)) return false;
+      }
+      // Radio
+      for (const rbw of radioWrappers) {
+        const fv = rbw.querySelector('input[type="radio"]:checked')?.value || '';
+        if (!fv) continue;
+        const tagEl = item.querySelector(asel('radio-tag', ga(rbw, 'radio')));
+        if (!tagEl) continue;
+        if (!matchers.select(getTagValue(tagEl), fv)) return false;
+      }
+      // Range
+      for (const rng of rangeWrappers) {
+        const minEl = rng.querySelector(asel('range-min'));
+        const maxEl = rng.querySelector(asel('range-max'));
+        const minV  = parseFloat(minEl?.value || '');
+        const maxV  = parseFloat(maxEl?.value || '');
+        if (isNaN(minV) && isNaN(maxV)) continue;
+        const tagEl = item.querySelector(asel('range-tag', ga(rng, 'range')));
+        if (!tagEl) continue;
+        const n = parseFloat(getTagValue(tagEl).replace(/[^0-9.\-]/g, ''));
+        if (isNaN(n)) return false;
+        if (!isNaN(minV) && n < minV) return false;
+        if (!isNaN(maxV) && n > maxV) return false;
+      }
+      // Toggle
+      for (const tog of toggleInputs) {
+        if (!tog.checked) continue;
+        const tagEl = item.querySelector(asel('toggle-tag', ga(tog, 'toggle')));
+        if (!tagEl) continue;
+        if (!matchers.toggle(getTagValue(tagEl))) return false;
+      }
+      return true;
+    }
+
+    // ── updateOptionCounts ────────────────────────────────────────────────
+    // For each [data-kw-filter-option-count] inside a checkbox label, writes
+    // how many items pass all other active filters AND match that option value.
+    function updateOptionCounts() {
+      for (const cbw of cbWrappers) {
+        const group = ga(cbw, 'checkboxes');
+        cbw.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+          const container = cb.closest('label') || cb.parentElement;
+          const countEl   = container?.querySelector(asel('option-count'));
+          if (!countEl) return;
+          let n = 0;
+          for (const item of originalOrder) {
+            if (!testItem(item, { skipCbw: cbw })) continue;
+            const tagEl = item.querySelector(asel('checkbox-tag', group));
+            if (tagEl && matchers.checkbox(getTagValue(tagEl), [cb.value])) n++;
+          }
+          countEl.textContent = n;
+        });
+      }
+    }
+
     // ── runFilter ─────────────────────────────────────────────────────────
     function runFilter() {
       wrapper.setAttribute(NP + 'state', 'filtering');
@@ -669,78 +820,7 @@
       const items   = Array.from(wrapper.children).filter(el => !ha(el, 'no-results') && !ha(el, 'ignore'));
       // Ignored items are always visible regardless of filter state.
       Array.from(wrapper.children).filter(el => ha(el, 'ignore')).forEach(el => { el.style.display = ''; });
-      const matched = [];
-
-      for (const item of items) {
-        let ok = true;
-
-        // Text search
-        for (const inp of searchInputs) {
-          if (!ok) break;
-          const fv = inp.value;
-          if (!fv) continue;
-          const tagEl = item.querySelector(asel('search-tag', ga(inp, 'search')));
-          if (!tagEl) continue;
-          if (!matchers.text(getTagValue(tagEl), fv)) ok = false;
-        }
-
-        // Single-select
-        for (const sel of selectEls) {
-          if (!ok) break;
-          const fv = sel.value;
-          if (!fv) continue;
-          const tagEl = item.querySelector(asel('select-tag', ga(sel, 'select')));
-          if (!tagEl) continue;
-          if (!matchers.select(getTagValue(tagEl), fv)) ok = false;
-        }
-
-        // Checkbox group
-        for (const cbw of cbWrappers) {
-          if (!ok) break;
-          const fvs = Array.from(cbw.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
-          if (!fvs.length) continue;
-          const tagEl = item.querySelector(asel('checkbox-tag', ga(cbw, 'checkboxes')));
-          if (!tagEl) continue;
-          if (!matchers.checkbox(getTagValue(tagEl), fvs)) ok = false;
-        }
-
-        // Radio group
-        for (const rbw of radioWrappers) {
-          if (!ok) break;
-          const fv = rbw.querySelector('input[type="radio"]:checked')?.value || '';
-          if (!fv) continue;
-          const tagEl = item.querySelector(asel('radio-tag', ga(rbw, 'radio')));
-          if (!tagEl) continue;
-          if (!matchers.select(getTagValue(tagEl), fv)) ok = false;
-        }
-
-        // Range
-        for (const rng of rangeWrappers) {
-          if (!ok) break;
-          const minEl = rng.querySelector(asel('range-min'));
-          const maxEl = rng.querySelector(asel('range-max'));
-          const minV  = parseFloat(minEl?.value || '');
-          const maxV  = parseFloat(maxEl?.value || '');
-          if (isNaN(minV) && isNaN(maxV)) continue;
-          const tagEl = item.querySelector(asel('range-tag', ga(rng, 'range')));
-          if (!tagEl) continue;
-          const n = parseFloat(getTagValue(tagEl).replace(/[^0-9.\-]/g, ''));
-          if (isNaN(n)) { ok = false; continue; }
-          if (!isNaN(minV) && n < minV) ok = false;
-          if (!isNaN(maxV) && n > maxV) ok = false;
-        }
-
-        // Toggle
-        for (const tog of toggleInputs) {
-          if (!ok) break;
-          if (!tog.checked) continue;
-          const tagEl = item.querySelector(asel('toggle-tag', ga(tog, 'toggle')));
-          if (!tagEl) continue;
-          if (!matchers.toggle(getTagValue(tagEl))) ok = false;
-        }
-
-        if (ok) matched.push(item);
-      }
+      const matched = items.filter(item => testItem(item));
 
       for (const item of items) {
         item.removeAttribute(NP + 'active');
@@ -770,6 +850,24 @@
         btn.hidden = visibleCount >= matched.length;
       }
       updateDropdownCounts();
+
+      // Per-option counts — update [data-kw-filter-option-count] inside each checkbox label.
+      updateOptionCounts();
+
+      // Results text — fills [data-kw-filter-results-text] using a {matched}/{total}/{shown} template.
+      for (const el of resultsTextEls) {
+        const tpl = el.getAttribute(NP + 'results-text') || '{matched} of {total}';
+        el.textContent = tpl
+          .replace('{matched}', matched.length)
+          .replace('{total}',   originalOrder.length)
+          .replace('{shown}',   showCount);
+      }
+
+      // Infinite scroll — reconnect observer while hidden items remain, disconnect when all shown.
+      if (_io && _sentinel) {
+        _io.disconnect();
+        if (visibleCount < matched.length) _io.observe(_sentinel);
+      }
 
       // Build pill state
       const pillState = {};
@@ -846,7 +944,16 @@
 
     // ── Event bindings ────────────────────────────────────────────────────
     for (const inp of searchInputs) {
-      inp.addEventListener('input', () => { visibleCount = itemsToShow; runFilter(); scheduleSync(); }, evOpt);
+      const debounceMs = parseInt(ga(inp, 'search-debounce') || '0', 10);
+      if (debounceMs > 0) {
+        let _dbt;
+        inp.addEventListener('input', () => {
+          clearTimeout(_dbt);
+          _dbt = setTimeout(() => { visibleCount = itemsToShow; runFilter(); scheduleSync(); }, debounceMs);
+        }, evOpt);
+      } else {
+        inp.addEventListener('input', () => { visibleCount = itemsToShow; runFilter(); scheduleSync(); }, evOpt);
+      }
     }
     for (const sel of selectEls) {
       sel.addEventListener('change', () => { visibleCount = itemsToShow; runFilter(); scheduleSync(); }, evOpt);
@@ -884,6 +991,40 @@
     }, evOpt);
     for (const btn of loadMoreBtns) {
       btn.addEventListener('click', () => { visibleCount += loadMoreStep; runFilter(); }, evOpt);
+    }
+
+    // '/' keyboard shortcut — focuses [data-kw-filter-search-shortcut] input
+    const shortcutInputs = searchInputs.filter(inp => ha(inp, 'search-shortcut'));
+    if (shortcutInputs.length) {
+      doc.addEventListener('keydown', e => {
+        if (e.key !== '/') return;
+        const tag = (e.target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
+        e.preventDefault();
+        shortcutInputs[0].focus();
+        shortcutInputs[0].select?.();
+        log('shortcut: focused search input');
+      }, evOpt);
+    }
+
+    // Infinite scroll — IntersectionObserver fires load-more when sentinel enters viewport.
+    // Hides loadMoreBtns when active (manual click and auto-scroll would conflict).
+    if (ga(wrapper, 'infinite-scroll') === 'true') {
+      for (const btn of loadMoreBtns) btn.hidden = true;
+      _sentinel = doc.createElement('div');
+      _sentinel.setAttribute(NP + 'sentinel', '');
+      _sentinel.style.cssText = 'height:1px;visibility:hidden;pointer-events:none';
+      wrapper.after(_sentinel);
+      _io = new IntersectionObserver(entries => {
+        if (!entries[0].isIntersecting) return;
+        log('infinite-scroll: sentinel visible — loading more');
+        visibleCount += loadMoreStep;
+        runFilter();
+      }, { rootMargin: '0px 0px 200px 0px' });
+      _io.observe(_sentinel);
+      // Clean up when the AbortController fires (wrapper replaced by React/Webstudio).
+      ac.signal.addEventListener('abort', () => { _io?.disconnect(); _sentinel?.remove(); });
+      log('infinite-scroll: observer attached');
     }
 
     // Pill click — scoped to groups owned by this list
