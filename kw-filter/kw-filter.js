@@ -255,29 +255,45 @@
       if (!btn) return;
       const n = group.querySelectorAll(asel('checkboxes') + ' input[type="checkbox"]:checked').length;
 
-      // Use an explicitly-placed [data-kw-count-display] if present.
-      // Otherwise lazily inject one inside the trigger's first <span> so
-      // it sits inline with the label text on flex/space-between layouts,
-      // avoiding the count element being pushed out between label and icon.
-      let display = btn.querySelector('[data-kw-count-display]');
-      if (!display) {
-        const labelSpan = btn.querySelector('span');
-        if (labelSpan) {
-          display = doc.createElement('span');
-          display.setAttribute('data-kw-count-display', '');
-          display.style.marginLeft = '0.25rem';
-          labelSpan.appendChild(display);
+      // Legacy: explicit [data-kw-count-display] element placed in canvas — just write the number.
+      const explicitDisplay = btn.querySelector('[data-kw-count-display]');
+      if (explicitDisplay) {
+        if (n > 0) {
+          btn.setAttribute('data-kw-count', n);
+          group.classList.add('gradient-border');
+          explicitDisplay.textContent = n;
+        } else {
+          btn.removeAttribute('data-kw-count');
+          group.classList.remove('gradient-border');
+          explicitDisplay.textContent = '';
         }
+        return;
       }
 
-      if (n > 0) {
-        btn.setAttribute('data-kw-count', n);
-        group.classList.add('gradient-border');
-        if (display) display.textContent = n;
+      // Default: replace the trigger label with "N Label Selected" / restore original.
+      const labelSpan = btn.querySelector('span');
+      if (labelSpan) {
+        if (!labelSpan.dataset.kwOriginalLabel) {
+          labelSpan.dataset.kwOriginalLabel = labelSpan.textContent.trim();
+        }
+        const orig = labelSpan.dataset.kwOriginalLabel;
+        if (n > 0) {
+          btn.setAttribute('data-kw-count', n);
+          group.classList.add('gradient-border');
+          labelSpan.textContent = `${n} ${orig} Selected`;
+        } else {
+          btn.removeAttribute('data-kw-count');
+          group.classList.remove('gradient-border');
+          labelSpan.textContent = orig;
+        }
       } else {
-        btn.removeAttribute('data-kw-count');
-        group.classList.remove('gradient-border');
-        if (display) display.textContent = '';
+        if (n > 0) {
+          btn.setAttribute('data-kw-count', n);
+          group.classList.add('gradient-border');
+        } else {
+          btn.removeAttribute('data-kw-count');
+          group.classList.remove('gradient-border');
+        }
       }
     });
   }
