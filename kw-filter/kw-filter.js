@@ -135,6 +135,7 @@
   /* ── Tag value helper ──────────────────────────────────────────────────── */
   // For <ul>/<ol> tags (e.g. sift-checkbox-tag on a list of teacher names),
   // join <li> children with commas so the comma-split matcher works correctly.
+  // Also handles JSON array strings from CMS bindings (e.g. ["Teacher","Admin"]).
   function getTagValue(el) {
     if (el.matches('ul, ol')) {
       return Array.from(el.querySelectorAll(':scope > li'))
@@ -142,7 +143,14 @@
         .filter(Boolean)
         .join(',');
     }
-    return el.textContent.trim();
+    const raw = el.textContent.trim();
+    if (raw.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.map(v => String(v).trim()).join(',');
+      } catch {}
+    }
+    return raw;
   }
 
   /* ── Style injection ────────────────────────────────────────────────────── */
@@ -339,10 +347,13 @@
       // Use the element's CSS-controlled position strategy.
       const posType = getComputedStyle(dd).position;
       const strategy = (posType === 'fixed') ? 'fixed' : 'absolute';
+      if (strategy !== 'fixed') warn('updatePos: .dropdown is not position:fixed — set it in canvas CSS for correct viewport-aware positioning (see README).');
       computePosition(btn, dd, {
         placement: 'bottom-start',
         strategy,
-        middleware: [offset(6), flip(), shift({ padding: 8 })],
+        // Prefer bottom variants before flipping to top — prevents upward opening
+        // when the positioning context (absolute ancestor) distorts available-space calc.
+        middleware: [offset(6), flip({ fallbackPlacements: ['bottom', 'bottom-end', 'top-start', 'top', 'top-end'] }), shift({ padding: 8 })],
       }).then(({ x, y }) => {
         dd.style.left = `${x}px`;
         dd.style.top  = `${y}px`;
