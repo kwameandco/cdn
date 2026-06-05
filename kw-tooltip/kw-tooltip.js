@@ -1,4 +1,4 @@
-/*! kw-tooltip v2.0.0 | kwameandco */
+/*! kw-tooltip v2.0.1 | kwameandco */
 /**
  * kw-tooltip — click-to-toggle tooltip/popover for Webstudio CMS cards.
  *
@@ -22,7 +22,7 @@
 (() => {
   const FUI_URL = 'https://cdn.jsdelivr.net/npm/@floating-ui/dom@1.4.4/+esm';
   const triggers = Array.from(document.querySelectorAll('[kw-tooltip-trigger]'));
-  window.kwTooltip = { version: '2.0.0', count: triggers.length };
+  window.kwTooltip = { version: '2.0.1', count: triggers.length };
   if (!triggers.length) return;
 
   // ── Floating UI loader (reuses kw-filter's instance if present) ───────────
@@ -68,11 +68,13 @@
     document.body.appendChild(tooltip);
     tooltip.setAttribute('role', 'tooltip');
     Object.assign(tooltip.style, {
-      position: 'fixed',
-      zIndex:   '9999',
-      margin:   '0',
-      width:    'max-content',                       // hug content, don't span the viewport
-      maxWidth: 'min(320px, calc(100vw - 16px))',    // stay responsive on small screens
+      position:   'fixed',
+      zIndex:     '9999',
+      margin:     '0',
+      width:      'max-content',                       // hug content, don't span the viewport
+      maxWidth:   'min(320px, calc(100vw - 16px))',    // stay responsive on small screens
+      transition: 'none',                              // kill any CSS slide/fade from .dropdown
+      animation:  'none',
     });
     hide(tooltip);
   });
