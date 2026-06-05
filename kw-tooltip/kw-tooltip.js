@@ -1,35 +1,33 @@
-/** @version 1.0.0
+/** @version 1.1.0
  * kw-tooltip
  *
  * Attributes
  *   [kw-tooltip-trigger]  — the button that opens/closes the tooltip
  *   [kw-tooltip]          — the content panel (sibling of trigger, inside same wrapper)
  *
- * CSS required:
- *   [kw-tooltip][aria-hidden="true"] { display: none; }
+ * CSS required (one line — prevents flash before script runs):
+ *   [kw-tooltip] { display: none; }
  *
- * Optional override for the default button label (set on the button element):
- *   aria-label="More information"
+ * Style the panel however you like. The script handles positioning and show/hide.
  */
 (() => {
   const triggers = Array.from(document.querySelectorAll('[kw-tooltip-trigger]'));
   if (!triggers.length) return;
 
-  // Wire up IDs and ARIA relationships on init
   triggers.forEach((btn, i) => {
     const tooltip = btn.parentElement?.querySelector('[kw-tooltip]');
     if (!tooltip) return;
 
     if (!tooltip.id) tooltip.id = `kw-tooltip-${i}`;
-
     btn.setAttribute('aria-expanded', 'false');
     btn.setAttribute('aria-controls', tooltip.id);
 
-    // Fallback label for icon-only buttons (override with aria-label on the element)
     if (!btn.getAttribute('aria-label') && !btn.getAttribute('aria-labelledby')) {
       btn.setAttribute('aria-label', 'More information');
     }
 
+    tooltip.style.position = 'fixed';
+    tooltip.style.zIndex   = '60';
     tooltip.setAttribute('aria-hidden', 'true');
   });
 
@@ -38,14 +36,36 @@
     return id ? document.getElementById(id) : null;
   };
 
+  const reposition = (btn, tooltip) => {
+    const r = btn.getBoundingClientRect();
+    tooltip.style.top  = `${r.bottom + 8}px`;
+    tooltip.style.left = `${r.left}px`;
+    // Nudge left if the panel bleeds off the right edge of the viewport
+    requestAnimationFrame(() => {
+      const tr = tooltip.getBoundingClientRect();
+      if (tr.right > window.innerWidth - 8) {
+        tooltip.style.left = `${r.left - (tr.right - (window.innerWidth - 8))}px`;
+      }
+    });
+  };
+
   const close = btn => {
+    const tooltip = getTooltip(btn);
     btn.setAttribute('aria-expanded', 'false');
-    getTooltip(btn)?.setAttribute('aria-hidden', 'true');
+    if (tooltip) {
+      tooltip.style.display = 'none';
+      tooltip.setAttribute('aria-hidden', 'true');
+    }
   };
 
   const open = btn => {
+    const tooltip = getTooltip(btn);
     btn.setAttribute('aria-expanded', 'true');
-    getTooltip(btn)?.removeAttribute('aria-hidden');
+    if (tooltip) {
+      tooltip.style.display = 'block';
+      tooltip.removeAttribute('aria-hidden');
+      reposition(btn, tooltip);
+    }
   };
 
   const closeAll = () => triggers.forEach(close);
@@ -68,4 +88,15 @@
   });
 
   document.addEventListener('click', closeAll);
+
+  ['scroll', 'resize'].forEach(evt => {
+    window.addEventListener(evt, () => {
+      triggers.forEach(btn => {
+        if (btn.getAttribute('aria-expanded') === 'true') {
+          const tooltip = getTooltip(btn);
+          if (tooltip) reposition(btn, tooltip);
+        }
+      });
+    }, { passive: true, capture: true });
+  });
 })();
