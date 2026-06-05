@@ -1,4 +1,5 @@
-/** @version 1.2.0
+/*! kw-tooltip v1.3.0 | kwameandco */
+/**
  * kw-tooltip
  *
  * Attributes
@@ -8,10 +9,15 @@
  * CSS required (one line — prevents flash before script runs):
  *   [kw-tooltip] { display: none; }
  *
- * Style the panel however you like. The script handles positioning and show/hide.
+ * Style the panel however you like (a copy of your filter .dropdown styles works).
+ * The script owns display/visibility/opacity/position via inline styles, so it
+ * does NOT matter what your class sets for those — inline wins over the class.
+ *
+ * Verify the live version in console:  window.kwTooltip.version
  */
 (() => {
   const triggers = Array.from(document.querySelectorAll('[kw-tooltip-trigger]'));
+  window.kwTooltip = { version: '1.3.0', count: triggers.length };
   if (!triggers.length) return;
 
   triggers.forEach((btn, i) => {
@@ -26,13 +32,28 @@
       btn.setAttribute('aria-label', 'More information');
     }
 
-    // Teleport to <body> so no ancestor overflow or transform can clip it
+    // Teleport to <body> so no ancestor overflow / transform / backdrop-filter
+    // can clip it or trap position:fixed.
     document.body.appendChild(tooltip);
     tooltip.style.position = 'fixed';
     tooltip.style.zIndex   = '9999';
-    tooltip.style.display  = 'none';
-    tooltip.setAttribute('aria-hidden', 'true');
+    hide(tooltip);
   });
+
+  function hide(tooltip) {
+    // Inline styles override whatever the styling class sets for these props.
+    tooltip.style.display    = 'none';
+    tooltip.style.visibility = 'hidden';
+    tooltip.style.opacity    = '0';
+    tooltip.setAttribute('aria-hidden', 'true');
+  }
+
+  function show(tooltip) {
+    tooltip.style.display    = 'block';
+    tooltip.style.visibility = 'visible';
+    tooltip.style.opacity    = '1';
+    tooltip.removeAttribute('aria-hidden');
+  }
 
   const getTooltip = btn => {
     const id = btn.getAttribute('aria-controls');
@@ -43,32 +64,25 @@
     const r = btn.getBoundingClientRect();
     tooltip.style.top  = `${r.bottom + 8}px`;
     tooltip.style.left = `${r.left}px`;
-    // Nudge left if the panel bleeds off the right edge of the viewport
+    // Nudge left if the panel bleeds off the right edge of the viewport.
     requestAnimationFrame(() => {
       const tr = tooltip.getBoundingClientRect();
       if (tr.right > window.innerWidth - 8) {
-        tooltip.style.left = `${r.left - (tr.right - (window.innerWidth - 8))}px`;
+        tooltip.style.left = `${Math.max(8, r.left - (tr.right - (window.innerWidth - 8)))}px`;
       }
     });
   };
 
   const close = btn => {
-    const tooltip = getTooltip(btn);
     btn.setAttribute('aria-expanded', 'false');
-    if (tooltip) {
-      tooltip.style.display = 'none';
-      tooltip.setAttribute('aria-hidden', 'true');
-    }
+    const tooltip = getTooltip(btn);
+    if (tooltip) hide(tooltip);
   };
 
   const open = btn => {
-    const tooltip = getTooltip(btn);
     btn.setAttribute('aria-expanded', 'true');
-    if (tooltip) {
-      tooltip.style.display = 'block';
-      tooltip.removeAttribute('aria-hidden');
-      reposition(btn, tooltip);
-    }
+    const tooltip = getTooltip(btn);
+    if (tooltip) { show(tooltip); reposition(btn, tooltip); }
   };
 
   const closeAll = () => triggers.forEach(close);
@@ -90,7 +104,12 @@
     });
   });
 
-  document.addEventListener('click', closeAll);
+  // Close on outside click only — clicks on a trigger or inside a panel are ignored.
+  document.addEventListener('click', e => {
+    if (e.target.closest('[kw-tooltip-trigger]')) return;
+    if (e.target.closest('[kw-tooltip]')) return;
+    closeAll();
+  });
 
   ['scroll', 'resize'].forEach(evt => {
     window.addEventListener(evt, () => {
