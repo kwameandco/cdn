@@ -1,4 +1,4 @@
-/** @version 1.1.0
+/** @version 1.2.0
  * kw-tooltip
  *
  * Attributes
@@ -26,8 +26,11 @@
       btn.setAttribute('aria-label', 'More information');
     }
 
+    // Teleport to <body> so no ancestor overflow or transform can clip it
+    document.body.appendChild(tooltip);
     tooltip.style.position = 'fixed';
-    tooltip.style.zIndex   = '60';
+    tooltip.style.zIndex   = '9999';
+    tooltip.style.display  = 'none';
     tooltip.setAttribute('aria-hidden', 'true');
   });
 
