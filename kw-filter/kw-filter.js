@@ -1,6 +1,12 @@
 /**
- * kw-filter v1.6.0
+ * kw-filter v1.6.1
  * See README.md for attribute API. See instructions.md for setup.
+ *
+ * v1.6.1 fix:
+ *   Defer the first filter pass until after React/Remix hydration commits.
+ *   Applying URL state or dispatching input events during hydration triggered
+ *   recoverable React hydration errors (#418/#423) → full client re-render that
+ *   wiped the filter (seen on the Breeze practice page). See whenHydrated().
  *
  * v1.6.0 additions (all opt-in, zero breaking changes):
  *   data-kw-filter-search-debounce="200"  — debounce search inputs (ms)
@@ -35,7 +41,7 @@
   function warn(...a) { if (DEBUG) console.warn('[kw-filter]', ...a); }
 
   /* ── Constants ──────────────────────────────────────────────────────────── */
-  const VERSION = '1.6.0';
+  const VERSION = '1.6.1';
   const NP = 'data-kw-filter-';
   const LP = 'sift-';
 
@@ -546,6 +552,20 @@
     return state;
   }
 
+  /* ── Hydration-safe deferral ────────────────────────────────────────────── */
+  // Run cb only once the host framework (React/Remix on Webstudio) has committed
+  // its initial hydration pass. Mutating filtered DOM or dispatching input events
+  // *during* hydration makes React throw recoverable hydration errors (#418/#423)
+  // and client-render the entire root — which replaces the list wrapper, resets
+  // URL-driven checkboxes, and wipes every filter style we just applied. Waiting
+  // for `load` + two animation frames lands us safely after hydration has flushed,
+  // so React keeps the server DOM and our pass operates on the live nodes.
+  function whenHydrated(cb) {
+    const run = () => requestAnimationFrame(() => requestAnimationFrame(cb));
+    if (doc.readyState === 'complete') run();
+    else win.addEventListener('load', run, { once: true });
+  }
+
   /* ── Initialized wrappers registry ─────────────────────────────────────── */
   const initialized = new WeakSet();
 
@@ -1048,10 +1068,12 @@
         visibleCount += loadMoreStep;
         runFilter();
       }, { rootMargin: '0px 0px 200px 0px' });
-      _io.observe(_sentinel);
+      // Don't observe yet — the deferred bootstrap runFilter() below starts
+      // observation (only while hidden items remain), so the observer can't
+      // fire a runFilter() during React hydration on short lists.
       // Clean up when the AbortController fires (wrapper replaced by React/Webstudio).
       ac.signal.addEventListener('abort', () => { _io?.disconnect(); _sentinel?.remove(); });
-      log('infinite-scroll: observer attached');
+      log('infinite-scroll: observer created (observation starts after hydration)');
     }
 
     // Pill click — scoped to groups owned by this list
@@ -1105,15 +1127,22 @@
     }
 
     // ── Bootstrap ─────────────────────────────────────────────────────────
-    if (feat('url-params')) {
-      const urlState = readURL(filterGroups, listId);
-      log('bootstrap: URL state', urlState);
-      applyState(urlState);
-    }
-    if (currentSort) doSort(currentSort);
-    runFilter();
-
-    wrapper.dispatchEvent(new CustomEvent('kw-filter:init', { bubbles: true }));
+    // Deferred until after hydration (see whenHydrated) so the initial
+    // applyState()/runFilter() pass — which sets checkbox state, dispatches
+    // synthetic change events, and hides non-matching items — never collides
+    // with React's hydration commit. All event listeners above are already
+    // bound synchronously, so user interaction works immediately regardless.
+    whenHydrated(() => {
+      if (ac.signal.aborted) return; // wrapper replaced/re-initialised before hydration settled
+      if (feat('url-params')) {
+        const urlState = readURL(filterGroups, listId);
+        log('bootstrap: URL state', urlState);
+        applyState(urlState);
+      }
+      if (currentSort) doSort(currentSort);
+      runFilter();
+      wrapper.dispatchEvent(new CustomEvent('kw-filter:init', { bubbles: true }));
+    });
 
     wrapper.kwFilter = {
       refresh()    { runFilter(); },
