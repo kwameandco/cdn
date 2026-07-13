@@ -1,4 +1,4 @@
-/*! kw-modal v1.0.0 — lightweight accessible dialog for Webstudio (MINDBODY booking) */
+/*! kw-modal v1.0.1 — lightweight accessible dialog for Webstudio (MINDBODY booking) */
 (function () {
   "use strict";
 
@@ -153,13 +153,17 @@
     else if (!e.shiftKey && doc.activeElement === last) { e.preventDefault(); first.focus(); }
   }
 
+  // Capture phase + stopPropagation so this runs BEFORE framework routers
+  // (Remix/React Router render internal links as <a data-discover> and
+  // client-side-navigate on click in the bubble phase — which would otherwise
+  // follow the trigger's href fallback to the detail page instead of opening).
   doc.addEventListener("click", function (e) {
     var node = e.target;
     if (!node || !node.closest) return;
     var opener = node.closest("[data-kw-modal-open]");
-    if (opener) { e.preventDefault(); open(opener); return; }
-    if (node.closest("[data-kw-modal-close]")) { e.preventDefault(); close(); }
-  });
+    if (opener) { e.preventDefault(); e.stopPropagation(); open(opener); return; }
+    if (node.closest("[data-kw-modal-close]")) { e.preventDefault(); e.stopPropagation(); close(); }
+  }, true);
 
-  window.kwModal = { version: "1.0.0", open: open, close: close };
+  window.kwModal = { version: "1.0.1", open: open, close: close };
 })();
