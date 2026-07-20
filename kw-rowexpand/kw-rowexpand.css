@@ -1,0 +1,73 @@
+/*! kw-rowexpand v1.0.0 */
+
+/* Tag list — smaller than body text, wraps, sits tight in a table column. */
+[data-kw-rowexpand-tags] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-xs, 0.5rem);
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--kw-rowexpand-tag-size, 0.8125rem); /* 13px — a step below body */
+  line-height: 1.3;
+}
+
+[data-kw-rowexpand-tags] > * {
+  margin: 0;
+}
+
+/* The generated "+N more" / "Show less" control.
+   Styled as inline text rather than a button so it reads as part of the tag row,
+   while remaining a real <button> for keyboard and screen-reader users. */
+.kw-rowexpand-more {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: inherit;
+  color: var(--foreground-muted, currentColor);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.kw-rowexpand-more:hover,
+.kw-rowexpand-more:focus-visible {
+  color: var(--foreground-default, currentColor);
+}
+
+/* Never remove the focus ring — this control is keyboard-operable and often the
+   only way to reach the collapsed content. */
+.kw-rowexpand-more:focus-visible {
+  outline: 2px solid var(--focus-color, currentColor);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* The detail region revealed on expand. `hidden` does the hiding (so it leaves
+   the a11y tree); this only handles spacing when shown. */
+[data-kw-rowexpand-detail] {
+  margin-top: var(--gap-xs, 0.5rem);
+}
+
+/* `hidden` must win even against a display rule from the design system,
+   otherwise collapsed content stays visible. */
+[data-kw-rowexpand-tags] > [hidden],
+[data-kw-rowexpand-detail][hidden] {
+  display: none !important;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-kw-rowexpand-detail]:not([hidden]) {
+    animation: kw-rowexpand-in 160ms ease-out;
+  }
+}
+
+@keyframes kw-rowexpand-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
