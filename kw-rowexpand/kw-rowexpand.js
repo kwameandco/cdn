@@ -1,10 +1,10 @@
-/*! kw-rowexpand v1.1.0 — accessible row disclosure for table-style lists */
+/*! kw-rowexpand v1.1.1 — accessible row disclosure for table-style lists */
 (function () {
   "use strict";
 
   if (window.kwRowExpand) return; // idempotent: survives double script injection
 
-  var VERSION = "1.1.0";
+  var VERSION = "1.1.1";
   var hydrationDone = false;
   var groups = new WeakMap();
   var uid = 0;
@@ -77,6 +77,13 @@
         })
       : [];
     var overflow = tags.slice(max);
+
+    // Mark the collapsible tags so CSS can animate exactly these on reveal.
+    // Without this the description eases open while the tags snap in, which
+    // reads as two different interactions rather than one row opening.
+    overflow.forEach(function (el) {
+      el.classList.add("kw-rowexpand-overflow");
+    });
 
     // The clamped paragraph, if a description wrapper is present.
     var descP = descWrap ? (descWrap.querySelector(":scope > p") || descWrap.querySelector("p")) : null;

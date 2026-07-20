@@ -1,4 +1,4 @@
-/*! kw-rowexpand v1.1.0 */
+/*! kw-rowexpand v1.1.1 */
 
 /* Tag list — smaller than body text, wraps, sits tight in a table column. */
 [data-kw-rowexpand-tags] {
@@ -92,10 +92,19 @@
   display: none !important;
 }
 
+/* Reveal motion. The collapsed tags and the detail region use the same easing
+   and duration as the description clamp, so expanding a row reads as ONE
+   interaction rather than a smooth description next to snapping tags. Tags are
+   staggered slightly so a long list resolves left-to-right instead of flashing. */
 @media (prefers-reduced-motion: no-preference) {
-  [data-kw-rowexpand-detail]:not([hidden]) {
-    animation: kw-rowexpand-in 160ms ease-out;
+  [data-kw-rowexpand-detail]:not([hidden]),
+  .kw-rowexpand-overflow:not([hidden]) {
+    animation: kw-rowexpand-in 240ms ease both;
   }
+
+  .kw-rowexpand-overflow:not([hidden]):nth-of-type(n + 5) { animation-delay: 30ms; }
+  .kw-rowexpand-overflow:not([hidden]):nth-of-type(n + 7) { animation-delay: 60ms; }
+  .kw-rowexpand-overflow:not([hidden]):nth-of-type(n + 9) { animation-delay: 90ms; }
 }
 
 @media (prefers-reduced-motion: reduce) {
