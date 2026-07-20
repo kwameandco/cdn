@@ -1,13 +1,15 @@
-/*! kw-rowexpand v1.0.0 — accessible row disclosure for table-style lists */
+/*! kw-rowexpand v1.1.0 — accessible row disclosure for table-style lists */
 (function () {
   "use strict";
 
   if (window.kwRowExpand) return; // idempotent: survives double script injection
 
-  var VERSION = "1.0.0";
+  var VERSION = "1.1.0";
   var hydrationDone = false;
   var groups = new WeakMap();
   var uid = 0;
+  var observer = null;
+  var resizeTimer = null;
 
   /**
    * Webstudio renders via React. Mutating the DOM *structurally* before React
@@ -38,13 +40,24 @@
   }
 
   function attr(el, name, fallback) {
-    var v = el.getAttribute(name);
-    return v === null || v === "" ? fallback : v;
+    var v = el && el.getAttribute(name);
+    return v === null || v === undefined || v === "" ? fallback : v;
   }
 
   function nextId(prefix) {
     uid += 1;
     return "kwre-" + prefix + "-" + uid;
+  }
+
+  function lineHeight(el) {
+    var cs = getComputedStyle(el);
+    var lh = parseFloat(cs.lineHeight); // "normal" parses to NaN
+    if (isNaN(lh)) lh = parseFloat(cs.fontSize) * 1.4;
+    // Both can be unavailable (no layout engine, detached node). Falling through
+    // with NaN makes every `scrollHeight > NaN` comparison false, so the plugin
+    // would silently decide nothing overflows and never show "Read more".
+    if (isNaN(lh) || lh <= 0) lh = 22.4; // 16px * 1.4
+    return lh;
   }
 
   /* ---------------------------------------------------------------- item */
@@ -54,85 +67,131 @@
 
     var tagList = item.querySelector("[data-kw-rowexpand-tags]");
     var detail = item.querySelector("[data-kw-rowexpand-detail]");
+    var descWrap = item.querySelector("[data-kw-rowexpand-desc]");
     var max = parseInt(attr(group.root, "data-kw-rowexpand-max", "3"), 10);
     if (isNaN(max) || max < 0) max = 3;
 
-    // Tag children: element children of the tag list (li/a/span — we don't care which).
-    var tags = tagList ? Array.prototype.filter.call(tagList.children, function (n) {
-      return n.nodeType === 1;
-    }) : [];
+    var tags = tagList
+      ? Array.prototype.filter.call(tagList.children, function (n) {
+          return n.nodeType === 1 && !n.hasAttribute("data-kw-rowexpand-toggle");
+        })
+      : [];
     var overflow = tags.slice(max);
 
-    // Nothing to disclose: no overflowing tags AND no detail region.
-    if (!overflow.length && !detail) return null;
+    // The clamped paragraph, if a description wrapper is present.
+    var descP = descWrap ? (descWrap.querySelector(":scope > p") || descWrap.querySelector("p")) : null;
+
+    if (!overflow.length && !detail && !descP) return null;
 
     var state = {
       item: item,
+      group: group,
       tagList: tagList,
       detail: detail,
+      descWrap: descWrap,
+      descP: descP,
       overflow: overflow,
       expanded: false,
-      toggle: null
+      toggle: null,
+      descToggle: null,
+      descOverflowing: false
     };
 
     if (detail && !detail.id) detail.id = nextId("detail");
+    if (descWrap && !descWrap.id) descWrap.id = nextId("desc");
 
-    // Build the toggle. An explicit [data-kw-rowexpand-toggle] wins so authors can
-    // place it themselves; otherwise we append one to the tag list.
+    /* --- tag toggle ("+N more") --- */
     var toggle = item.querySelector("[data-kw-rowexpand-toggle]");
     var generated = false;
-    if (!toggle && overflow.length) {
+    if (!toggle && overflow.length && tagList) {
       toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "kw-rowexpand-more";
       toggle.setAttribute("data-kw-rowexpand-toggle", "");
       generated = true;
     }
-
     if (toggle) {
-      // <button> already has the right role/keyboard behaviour. If an author used a
-      // non-button element, give it button semantics rather than silently shipping
-      // something a keyboard or screen-reader user cannot operate.
-      if (toggle.tagName !== "BUTTON") {
-        toggle.setAttribute("role", "button");
-        if (!toggle.hasAttribute("tabindex")) toggle.setAttribute("tabindex", "0");
-        toggle.addEventListener("keydown", function (e) {
-          if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
-            e.preventDefault();
-            setExpanded(group, state, !state.expanded, true);
-          }
-        });
-      }
-      toggle.setAttribute("aria-expanded", "false");
-      if (detail) toggle.setAttribute("aria-controls", detail.id);
-      toggle.addEventListener("click", function (e) {
-        e.preventDefault();
-        setExpanded(group, state, !state.expanded, true);
-      });
+      prepToggle(toggle, state, detail || descWrap);
       state.toggle = toggle;
       if (generated) tagList.appendChild(toggle);
     }
 
-    // A second, optional trigger on the description side, so clicking either the
-    // "+N more" or the description toggle opens both — the bidirectional behaviour.
-    var detailToggle = item.querySelector("[data-kw-rowexpand-detail-toggle]");
-    if (detailToggle) {
-      if (detailToggle.tagName !== "BUTTON") {
-        detailToggle.setAttribute("role", "button");
-        if (!detailToggle.hasAttribute("tabindex")) detailToggle.setAttribute("tabindex", "0");
+    /* --- description toggle ("Read more") --- */
+    if (descP) {
+      var dt = item.querySelector("[data-kw-rowexpand-desc-toggle]");
+      if (!dt) {
+        dt = document.createElement("button");
+        dt.type = "button";
+        dt.className = "kw-rowexpand-readmore";
+        dt.setAttribute("data-kw-rowexpand-desc-toggle", "");
+        dt.hidden = true; // shown only if the text actually overflows
+        descWrap.appendChild(dt);
       }
-      detailToggle.setAttribute("aria-expanded", "false");
-      if (detail) detailToggle.setAttribute("aria-controls", detail.id);
-      detailToggle.addEventListener("click", function (e) {
-        e.preventDefault();
-        setExpanded(group, state, !state.expanded, true);
-      });
-      state.detailToggle = detailToggle;
+      prepToggle(dt, state, descWrap);
+      state.descToggle = dt;
+    }
+
+    // Legacy/alternate trigger name kept working.
+    var altToggle = item.querySelector("[data-kw-rowexpand-detail-toggle]");
+    if (altToggle) {
+      prepToggle(altToggle, state, detail || descWrap);
+      state.altToggle = altToggle;
     }
 
     item.__kwre = state;
-    applyState(state); // collapse to the initial state
+    applyState(state);
+    measure(state);
     return state;
+  }
+
+  function prepToggle(el, state, controls) {
+    // A real <button> already has role + keyboard behaviour. If an author used
+    // something else, give it button semantics rather than silently shipping
+    // something a keyboard or screen-reader user cannot operate.
+    if (el.tagName !== "BUTTON") {
+      el.setAttribute("role", "button");
+      if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "0");
+      el.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+          e.preventDefault();
+          setExpanded(state.group, state, !state.expanded);
+        }
+      });
+    }
+    el.setAttribute("aria-expanded", "false");
+    if (controls && controls.id) el.setAttribute("aria-controls", controls.id);
+    el.addEventListener("click", function (e) {
+      e.preventDefault();
+      setExpanded(state.group, state, !state.expanded);
+    });
+  }
+
+  /* ------------------------------------------------------------- measure */
+
+  /**
+   * Decide whether the description actually overflows its clamp. Only then is a
+   * "Read more" worth showing — a control that expands nothing is noise, and
+   * filter-readmore (which this replaces) got that right.
+   */
+  function measure(state) {
+    var p = state.descP;
+    if (!p || !state.descWrap) return;
+    if (state.expanded) return;
+
+    var lines = parseInt(attr(state.group.root, "data-kw-rowexpand-lines", "3"), 10);
+    if (isNaN(lines) || lines < 1) lines = 3;
+
+    var collapsedPx = lineHeight(p) * lines;
+    var overflowing = p.scrollHeight > collapsedPx + 2;
+    state.descOverflowing = overflowing;
+
+    if (overflowing) {
+      p.style.maxHeight = collapsedPx + "px";
+      if (state.descToggle) state.descToggle.hidden = false;
+    } else {
+      p.style.maxHeight = "";
+      if (state.descToggle) state.descToggle.hidden = true;
+    }
   }
 
   /* --------------------------------------------------------------- state */
@@ -142,7 +201,7 @@
 
     // `hidden` (not just display:none) keeps collapsed tags out of the
     // accessibility tree and out of tab order — a screen reader should not read
-    // rows the sighted user cannot see.
+    // content the sighted user cannot see.
     state.overflow.forEach(function (el) {
       if (expanded) el.removeAttribute("hidden");
       else el.setAttribute("hidden", "");
@@ -153,23 +212,55 @@
       else state.detail.setAttribute("hidden", "");
     }
 
+    // Description clamp: class drives the CSS, maxHeight drives the animation.
+    if (state.descWrap && state.descP) {
+      var p = state.descP;
+      if (expanded) {
+        state.descWrap.classList.add("kw-rowexpand-open");
+        p.style.maxHeight = p.scrollHeight + "px";
+        setTimeout(function () {
+          if (state.expanded) p.style.maxHeight = "none";
+        }, 400);
+      } else {
+        state.descWrap.classList.remove("kw-rowexpand-open");
+        if (state.descOverflowing) {
+          var lines = parseInt(attr(state.group.root, "data-kw-rowexpand-lines", "3"), 10);
+          if (isNaN(lines) || lines < 1) lines = 3;
+          p.style.maxHeight = p.scrollHeight + "px";
+          requestAnimationFrame(function () {
+            if (!state.expanded) p.style.maxHeight = lineHeight(p) * lines + "px";
+          });
+        }
+      }
+    }
+
+    var n = state.overflow.length;
     if (state.toggle) {
       state.toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
       if (!state.toggle.hasAttribute("data-kw-rowexpand-keep-label")) {
-        var n = state.overflow.length;
         state.toggle.textContent = expanded
-          ? (attr(state.toggle, "data-label-less", "Show less"))
-          : (n ? "+" + n + " more" : attr(state.toggle, "data-label-more", "More"));
+          ? attr(state.toggle, "data-label-less", "Show less")
+          : n
+            ? "+" + n + " more"
+            : attr(state.toggle, "data-label-more", "More");
       }
     }
-    if (state.detailToggle) {
-      state.detailToggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+    if (state.descToggle) {
+      state.descToggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+      if (!state.descToggle.hasAttribute("data-kw-rowexpand-keep-label")) {
+        state.descToggle.textContent = expanded
+          ? attr(state.descToggle, "data-label-less", "Show less")
+          : attr(state.descToggle, "data-label-more", "Read more");
+      }
+    }
+    if (state.altToggle) {
+      state.altToggle.setAttribute("aria-expanded", expanded ? "true" : "false");
     }
 
     state.item.setAttribute("data-kw-rowexpand-state", expanded ? "expanded" : "collapsed");
   }
 
-  function setExpanded(group, state, next, userInitiated) {
+  function setExpanded(group, state, next) {
     // Accordion: only one row open per group.
     if (next && group.single) {
       group.items.forEach(function (other) {
@@ -181,18 +272,13 @@
     }
     state.expanded = next;
     applyState(state);
-
-    if (userInitiated && next && state.detail) {
-      // Announce the newly revealed region without stealing focus from the toggle
-      // (moving focus on every expand is disorienting for keyboard users).
-      state.detail.setAttribute("tabindex", "-1");
-    }
   }
 
   /* --------------------------------------------------------------- group */
 
   function initGroup(root) {
-    if (groups.get(root)) return groups.get(root);
+    var existing = groups.get(root);
+    if (existing) return existing;
     var group = {
       root: root,
       single: attr(root, "data-kw-rowexpand-single", "true") !== "false",
@@ -204,7 +290,7 @@
   }
 
   function refresh(group) {
-    var sel = attr(group.root, "data-kw-rowexpand-item", "[data-kw-rowexpand-item]");
+    var sel = attr(group.root, "data-kw-rowexpand-item-selector", "[data-kw-rowexpand-item]");
     var items = group.root.querySelectorAll(sel);
     group.items = [];
     Array.prototype.forEach.call(items, function (item) {
@@ -213,11 +299,54 @@
     });
   }
 
+  function eachGroup(fn) {
+    document.querySelectorAll("[data-kw-rowexpand]").forEach(function (root) {
+      var g = groups.get(root) || initGroup(root);
+      fn(g);
+    });
+  }
+
   /* ---------------------------------------------------------------- boot */
 
   function bootNow() {
-    document.querySelectorAll("[data-kw-rowexpand]").forEach(function (root) {
-      initGroup(root);
+    eachGroup(function () {});
+
+    /**
+     * kw-filter re-renders rows when filtering or paginating, which drops our
+     * listeners and re-shows every collapsed tag. Re-scan on mutation so the
+     * page doesn't have to remember to call refresh(). Ignore our own inserts,
+     * or we loop.
+     */
+    if (!observer && typeof MutationObserver === "function") {
+      try {
+        observer = new MutationObserver(function (muts) {
+          for (var i = 0; i < muts.length; i++) {
+            var added = muts[i].addedNodes;
+            for (var j = 0; j < added.length; j++) {
+              var n = added[j];
+              if (
+                n.nodeType === 1 &&
+                !(n.classList &&
+                  (n.classList.contains("kw-rowexpand-more") ||
+                   n.classList.contains("kw-rowexpand-readmore")))
+              ) {
+                eachGroup(refresh);
+                return;
+              }
+            }
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+      } catch (e) {}
+    }
+
+    window.addEventListener("resize", function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function () {
+        eachGroup(function (g) {
+          g.items.forEach(measure);
+        });
+      }, 150);
     });
   }
 
@@ -228,32 +357,22 @@
   window.kwRowExpand = {
     version: VERSION,
     boot: boot,
-    /**
-     * Re-scan after the list changes. kw-filter re-renders rows when filtering,
-     * which drops our listeners and re-shows every tag — call this afterwards.
-     */
     refresh: function (root) {
       if (root) {
         var g = groups.get(root) || initGroup(root);
         refresh(g);
         return;
       }
-      document.querySelectorAll("[data-kw-rowexpand]").forEach(function (r) {
-        var g = groups.get(r) || initGroup(r);
-        refresh(g);
+      eachGroup(refresh);
+    },
+    remeasure: function () {
+      eachGroup(function (g) {
+        g.items.forEach(measure);
       });
     },
-    collapseAll: function (root) {
-      var g = root && groups.get(root);
-      var list = g ? [g] : [];
-      if (!g) {
-        document.querySelectorAll("[data-kw-rowexpand]").forEach(function (r) {
-          var gg = groups.get(r);
-          if (gg) list.push(gg);
-        });
-      }
-      list.forEach(function (grp) {
-        grp.items.forEach(function (st) {
+    collapseAll: function () {
+      eachGroup(function (g) {
+        g.items.forEach(function (st) {
           st.expanded = false;
           applyState(st);
         });

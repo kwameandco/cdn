@@ -1,4 +1,4 @@
-/*! kw-rowexpand v1.0.0 */
+/*! kw-rowexpand v1.1.0 */
 
 /* Tag list — smaller than body text, wraps, sits tight in a table column. */
 [data-kw-rowexpand-tags] {
@@ -17,22 +17,50 @@
   margin: 0;
 }
 
-/* The generated "+N more" / "Show less" control.
-   Styled as inline text rather than a button so it reads as part of the tag row,
-   while remaining a real <button> for keyboard and screen-reader users. */
-.kw-rowexpand-more {
+/* Description clamp. Absorbed from the old filter-readmore embed: clamp in
+   place with -webkit-line-clamp so the text still reflows, rather than hiding
+   a separate block. --kw-rowexpand-lines must match data-kw-rowexpand-lines. */
+[data-kw-rowexpand-desc] > p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--kw-rowexpand-lines, 3);
+  line-clamp: var(--kw-rowexpand-lines, 3);
+  overflow: hidden;
+  transition: max-height 0.35s ease;
+}
+
+[data-kw-rowexpand-desc].kw-rowexpand-open > p {
+  -webkit-line-clamp: 999;
+  line-clamp: 999;
+}
+
+/* Toggles. Styled as inline text so they read as part of the content, while
+   remaining real <button>s for keyboard and screen-reader users. */
+.kw-rowexpand-more,
+.kw-rowexpand-readmore {
   appearance: none;
   background: none;
   border: 0;
   padding: 0;
   margin: 0;
   font: inherit;
-  font-size: inherit;
-  color: var(--foreground-muted, currentColor);
+  cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
-  cursor: pointer;
   white-space: nowrap;
+}
+
+.kw-rowexpand-more {
+  font-size: inherit;
+  color: var(--foreground-muted, currentColor);
+}
+
+.kw-rowexpand-readmore {
+  display: inline-block;
+  margin-top: 0.4rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--action-primary-bg, currentColor);
 }
 
 .kw-rowexpand-more:hover,
@@ -40,16 +68,17 @@
   color: var(--foreground-default, currentColor);
 }
 
-/* Never remove the focus ring — this control is keyboard-operable and often the
-   only way to reach the collapsed content. */
-.kw-rowexpand-more:focus-visible {
+/* Never remove the focus ring — these controls are keyboard-operable and often
+   the only route to the collapsed content. */
+.kw-rowexpand-more:focus-visible,
+.kw-rowexpand-readmore:focus-visible {
   outline: 2px solid var(--focus-color, currentColor);
   outline-offset: 2px;
   border-radius: 2px;
 }
 
-/* The detail region revealed on expand. `hidden` does the hiding (so it leaves
-   the a11y tree); this only handles spacing when shown. */
+/* Region revealed on expand. `hidden` does the hiding (so it leaves the a11y
+   tree); this only handles spacing when shown. */
 [data-kw-rowexpand-detail] {
   margin-top: var(--gap-xs, 0.5rem);
 }
@@ -57,13 +86,21 @@
 /* `hidden` must win even against a display rule from the design system,
    otherwise collapsed content stays visible. */
 [data-kw-rowexpand-tags] > [hidden],
-[data-kw-rowexpand-detail][hidden] {
+[data-kw-rowexpand-detail][hidden],
+.kw-rowexpand-more[hidden],
+.kw-rowexpand-readmore[hidden] {
   display: none !important;
 }
 
 @media (prefers-reduced-motion: no-preference) {
   [data-kw-rowexpand-detail]:not([hidden]) {
     animation: kw-rowexpand-in 160ms ease-out;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-kw-rowexpand-desc] > p {
+    transition: none;
   }
 }
 
