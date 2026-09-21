@@ -1,0 +1,257 @@
+/*! kw-giftshop v1.0.0 — gift-shop page, price table, enquiry form and carry banner */
+
+/* Plain CSS, deliberately. The source this was lifted from lives in a
+   Squarespace Custom CSS box, which compiles LESS — nesting, `@media @desktop`,
+   `@width-large`. None of that survives being served as a stylesheet, and the
+   publish workflow minifies with lightningcss, a real CSS parser that rejects
+   it. So: flat selectors, literal media queries, and CSS custom properties
+   with fallbacks instead of LESS variables.
+
+   The colour tokens are the site's own (:root in the Custom CSS box). The
+   fallbacks mean this file still renders correctly on its own — if the box is
+   ever emptied, the gift shop degrades to the right colours rather than to
+   unstyled. */
+
+/* The two gift collections. These ids are Gallery Keoki's and nothing else's:
+   6ab1613d… is the gift-shop index, 6ab17aab… the product pages. A Squarespace
+   7.0 collection id changes if the page is deleted and recreated, at which
+   point these rules silently stop matching. */
+
+/*! #gift-shop — page widths */
+#collection-6ab1613d15aeae1a003fa8ba .Main-content,
+#collection-6ab17aabd75f9017140d0910 .Main-content {
+  max-width: 1280px;
+  margin-inline: auto;
+}
+
+/*! #gift-shop — index image blocks */
+#collection-6ab1613d15aeae1a003fa8ba .sqs-block-image .image-title p {
+  display: block;
+  font-size: 1.2rem !important;
+  font-weight: 400;
+  text-align: center;
+  width: 100%;
+}
+
+#collection-6ab1613d15aeae1a003fa8ba .sqs-block-image .image-button-wrapper a {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+/*! #gift-shop — product pages */
+#collection-6ab17aabd75f9017140d0910 h1 {
+  color: var(--accent, #e08a3c);
+  font-size: 2rem;
+}
+
+/* Sticky image column. 768px is the template's own desktop edge; the /a-b-f
+   grid in the Custom CSS box breaks at 800px instead, and the two disagree on
+   purpose — this one interacts with Squarespace's own columns, so it follows
+   the template. */
+@media (min-width: 768px) {
+  #collection-6ab17aabd75f9017140d0910 .sqs-row {
+    position: relative;
+  }
+
+  #collection-6ab17aabd75f9017140d0910 .sqs-col-6 .sqs-block-image {
+    position: sticky;
+    top: 2rem;
+  }
+}
+
+#collection-6ab17aabd75f9017140d0910 button.lightbox-handle {
+  width: 100%;
+}
+
+#collection-6ab17aabd75f9017140d0910 p em {
+  font-size: 0.9rem;
+  font-style: unset;
+  text-wrap: balance;
+  text-wrap: pretty;
+}
+
+/*! #gift-shop — product list */
+.fallback .ProductList-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-gap: 3rem;
+}
+
+@media (max-width: 767px) {
+  .fallback .ProductList-grid {
+    display: block;
+  }
+}
+
+.fallback .ProductList div.ProductList-item.post-type-store-item {
+  clear: unset !important;
+  float: unset !important;
+  margin: 0;
+}
+
+.fallback .ProductList-item {
+  width: 100% !important;
+}
+
+.fallback .ProductList-meta::after {
+  display: block;
+  position: relative;
+  content: "View This Format";
+  text-transform: uppercase;
+  color: var(--accent, #e08a3c);
+  font-size: 0.8rem;
+  text-align: center;
+  margin-top: .5rem;
+}
+
+.fallback .ProductList-item img {
+  position: absolute !important;
+  width: 100% !important;
+  height: 100% !important;
+  inset: 0 !important;
+}
+
+/*! Price tables */
+
+/* A Markdown Block renders the size as an h3 and the price as a p — two
+   separate elements, so Grid puts them in two columns with no JavaScript.
+   `:has(h3)` is the whole scope: prose markdown elsewhere on the site has no
+   h3 in it and is untouched, so there is no collection-id list to maintain. */
+.sqs-block-markdown .sqs-block-content:has(h3) {
+  display: grid;
+  grid-template-columns: 1fr auto;
+}
+
+.sqs-block-markdown .sqs-block-content:has(h3) > h2 {
+  grid-column: span 2;
+  font-size: 1.05em;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.sqs-block-markdown .sqs-block-content:has(h3) > h2:first-child {
+  margin-top: 0;
+}
+
+.sqs-block-markdown .sqs-block-content:has(h3) > h3 {
+  grid-column: 1;
+  margin: 0;
+  padding: .62em 0;
+  font-size: 1em;
+  font-weight: 400;
+  border-top: 1px solid;
+  border-color: rgba(128, 128, 128, .3);
+}
+
+.sqs-block-markdown .sqs-block-content:has(h3) > p {
+  grid-column: 2;
+  margin: 0;
+  padding: .62em 0;
+  text-align: right;
+  white-space: nowrap;
+  border-top: 1px solid;
+  border-color: rgba(128, 128, 128, .3);
+}
+
+/*! Enquiry form */
+
+/* The real Artwork field, visually hidden rather than display:none — it is a
+   required Text field and Squarespace's own validation still owns it, so it
+   has to stay focusable-adjacent and submittable. The dropdown above it is
+   what the visitor actually uses. */
+.kw-hide {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.kw-pick {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  margin-top: .7em;
+  padding: .7em;
+  border: 1px solid;
+  border-color: rgba(128, 128, 128, .3);
+}
+
+.kw-pick img {
+  flex: 0 0 86px;
+  width: 86px;
+  aspect-ratio: 86 / 58;
+  height: auto;
+  object-fit: cover;
+}
+
+.kw-pick b {
+  display: block;
+  font-weight: 400;
+}
+
+.kw-pick .kw-sub {
+  display: block;
+  opacity: .7;
+}
+
+.kw-pick.kw-empty {
+  justify-content: center;
+  opacity: .5;
+}
+
+.kw-lock {
+  opacity: .75;
+}
+
+/*! Carried artwork banner */
+.kw-carry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 1280px;
+  margin-top: 2rem;
+  margin-inline: auto;
+  padding: .75rem 1rem;
+  border: 1px solid var(--accent, #e08a3c);
+  background: rgba(224, 138, 60, .07);
+}
+
+.kw-carry img {
+  flex: 0 0 auto;
+  width: 74px;
+  height: 50px;
+  object-fit: cover;
+}
+
+.kw-carry div {
+  flex: 1;
+}
+
+.kw-carry b {
+  display: block;
+  color: #fff;
+  font-weight: 400;
+  font-size: 14.5px;
+}
+
+.kw-carry-msg {
+  display: block;
+  font-size: 13px;
+  color: #dcdcdc;
+}
+
+.kw-carry a {
+  border: 1px solid var(--line, #242424);
+  color: var(--dim, #9a9a9a);
+  font-size: 11.5px;
+  padding: 6px 11px;
+  border-radius: 2px;
+  white-space: nowrap;
+  text-decoration: none;
+}
