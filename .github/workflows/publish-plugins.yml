@@ -1,0 +1,164 @@
+name: Publish plugins to CDN
+
+# Why this lives HERE and not in kwameandco/clients:
+#   GitHub Actions minutes are only metered on PRIVATE repos, and they are
+#   pooled per account. When another private repo spends the month's minutes,
+#   every workflow in clients fails in ~4 s with no runner and no logs (that is
+#   what killed the CDN publish from 2026-08-05 onwards). This repo is public,
+#   so standard ubuntu runners are free and unmetered — the publish can never
+#   be starved by someone else's CI again. Keep it on `ubuntu-latest`; larger
+#   runners ARE billed on public repos.
+#
+# What it does: checks out plugins/ from the private clients repo (read-only
+# PAT), minifies every plugin's top-level *.js / *.css exactly as the old
+# per-plugin workflows did, copies source + minified into <plugin>/ here,
+# commits only if something changed, pushes, and purges jsDelivr for the files
+# that changed. It never deletes a file — a plugin removed from clients keeps
+# serving its last build, so pinned pages never break.
+#
+# Triggers: run it by hand (Actions tab, `gh workflow run`, or the GitHub MCP
+# run-trigger tool) after merging plugin work to clients main — plus a daily
+# schedule as a safety net. Note GitHub disables the schedule after 60 days
+# without a commit to THIS repo; dispatch still works and re-enables it.
+#
+# Secret: CLIENTS_READ_TOKEN — fine-grained PAT, repository kwameandco/clients
+# only, permission Contents: Read. Nothing else. Stored in this repo's secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: "Plugin folder to publish (e.g. kw-filter), or 'all'"
+        required: false
+        default: "all"
+        type: string
+      dry_run:
+        description: "Build and show what would change, but do not commit or push"
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "23 5 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-plugins
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this repo (the CDN)
+        uses: actions/checkout@v4
+
+      - name: Check out plugins/ from kwameandco/clients (read-only)
+        uses: actions/checkout@v4
+        with:
+          repository: kwameandco/clients
+          ref: main
+          token: ${{ secrets.CLIENTS_READ_TOKEN }}
+          path: clients-src
+          sparse-checkout: plugins
+          sparse-checkout-cone-mode: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Minify and stage
+        env:
+          ONLY: ${{ github.event.inputs.plugin || 'all' }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          # Fail loudly if the private checkout came back empty — a bad token
+          # must never turn into a run that publishes nothing and looks green.
+          dirs=(clients-src/plugins/*/)
+          if [ "${#dirs[@]}" -eq 0 ]; then
+            echo "::error::clients-src/plugins is empty — CLIENTS_READ_TOKEN missing or wrong?"
+            exit 1
+          fi
+
+          published=()
+          for dir in "${dirs[@]}"; do
+            name=$(basename "$dir")
+            if [ "$ONLY" != "all" ] && [ "$ONLY" != "$name" ]; then continue; fi
+
+            # Only top-level source files, and only if there are any.
+            src=()
+            for f in "$dir"*.js "$dir"*.css; do
+              case "$f" in *.min.js|*.min.css) continue ;; esac
+              src+=("$f")
+            done
+            [ "${#src[@]}" -eq 0 ] && continue
+
+            echo "::group::$name"
+            mkdir -p "$name"
+            for f in "${src[@]}"; do
+              base=$(basename "$f")
+              case "$base" in
+                *.js)
+                  echo "terser: $base"
+                  npx --yes terser "$f" --output "$name/${base%.js}.min.js" \
+                    --compress --mangle --comments '/^!/'
+                  ;;
+                *.css)
+                  echo "lightningcss: $base"
+                  npx --yes lightningcss-cli --minify --output-file "$name/${base%.css}.min.css" "$f"
+                  ;;
+              esac
+              cp "$f" "$name/$base"
+            done
+            echo "::endgroup::"
+            published+=("$name")
+          done
+
+          if [ "$ONLY" != "all" ] && [ "${#published[@]}" -eq 0 ]; then
+            echo "::error::No plugin folder named '$ONLY' with .js/.css sources"
+            exit 1
+          fi
+
+          git add -A -- "${published[@]}"
+          echo "Changed files:"
+          git diff --staged --name-only | tee changed-files.txt
+
+      - name: Dry run — show the diff and stop
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        run: |
+          git diff --staged --stat
+          echo "Dry run: nothing committed or pushed."
+
+      - name: Commit and push
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          set -euo pipefail
+          if git diff --staged --quiet; then
+            echo "Nothing changed — nothing to publish."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          names=$(git diff --staged --name-only | cut -d/ -f1 | sort -u | tr '\n' ' ')
+          git commit -m "chore: sync ${names}$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push
+
+      - name: Purge jsDelivr for changed files
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          # jsDelivr caches @main for up to 7 days and purges do not reach every
+          # edge reliably — pin a commit SHA or tag on any page where a stale
+          # build reads as a broken page (see clients/plugins/README.md).
+          [ -s changed-files.txt ] || { echo "Nothing to purge."; exit 0; }
+          while read -r f; do
+            [ -n "$f" ] || continue
+            echo "Purging: $f"
+            curl -fsS "https://purge.jsdelivr.net/gh/kwameandco/cdn@main/$f" -o /dev/null \
+              || echo "purge request failed for $f (non-fatal)"
+          done < changed-files.txt

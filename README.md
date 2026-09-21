@@ -2,7 +2,7 @@
 
 Public CDN for static scripts and assets, served via jsDelivr.
 
-This repo is **write-only for humans** — files are pushed here automatically by GitHub Actions workflows in other repos (primarily `kwameandco/webstudio`). You should never need to edit files here by hand.
+This repo is **write-only for humans** — plugin files are written by this repo's own workflow, `.github/workflows/publish-plugins.yml`, which reads `kwameandco/clients/plugins/` and minifies from there. You should never need to edit plugin files here by hand.
 
 ---
 
@@ -27,7 +27,7 @@ https://cdn.jsdelivr.net/gh/kwameandco/cdn@main/kw-filter/kw-filter.js
 
 ### Cache purge
 
-jsDelivr caches `@main` for a few minutes. If a change isn't showing, purge it:
+jsDelivr caches `@main` for up to seven days and the publish workflow purges changed files automatically. If a change still isn't showing, purge by hand (best-effort — not every edge honours it):
 
 ```
 https://purge.jsdelivr.net/gh/kwameandco/cdn@main/<folder>/<file>
@@ -50,84 +50,42 @@ One folder per plugin or tool. Each folder should contain at minimum a minified 
 
 ## How to add a new script
 
-### 1. Create the source file in webstudio
+### 1. Create the source in clients
 
-Add your script at:
-```
-kwameandco/webstudio/plugins/<script-name>/<script-name>.js
-```
+Add your script at `kwameandco/clients/plugins/<script-name>/` — any number of top-level
+`.js` and `.css` files. Every one of them is published (source and minified), so keep
+non-shipping files in a subfolder or on another extension.
 
-### 2. Create a workflow in webstudio
+### 2. Merge to clients main, then run the publish workflow
 
-Create `.github/workflows/minify-<script-name>.yml`:
+In **this** repo: Actions → *Publish plugins to CDN* → Run workflow. Set `plugin` to the
+folder name (or leave `all`), and tick `dry_run` first if you want to see the diff without
+pushing. The same run can be started with `gh workflow run publish-plugins.yml` or the GitHub
+MCP run-trigger tool. A daily schedule runs it too, so a merge is never stranded for more
+than a day.
 
-```yaml
-name: Minify and publish <script-name>
+The workflow minifies with Terser (`--compress --mangle --comments '/^!/'`) and
+lightningcss (`--minify`), commits only the files that changed, and purges jsDelivr for
+them. It never deletes.
 
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'plugins/<script-name>/<script-name>.js'
-  workflow_dispatch:
+### 3. The secret
 
-concurrency:
-  group: minify-<script-name>
-  cancel-in-progress: false
+`CLIENTS_READ_TOKEN` must exist in **this** repo's settings (Settings → Secrets and
+variables → Actions). It is a fine-grained personal access token scoped to
+`kwameandco/clients` with **Contents: Read-only**. It is the only credential involved;
+pushes to this repo use the workflow's own `GITHUB_TOKEN`.
 
-jobs:
-  minify-and-publish:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+### 4. Verify
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Minify with Terser
-        run: |
-          npx --yes terser plugins/<script-name>/<script-name>.js \
-            --output plugins/<script-name>/<script-name>.min.js \
-            --compress \
-            --mangle \
-            --comments '/^!/'
-
-      - name: Push to public CDN repo
-        env:
-          CDN_PUSH_TOKEN: ${{ secrets.CDN_PUSH_TOKEN }}
-        run: |
-          git clone "https://x-access-token:${CDN_PUSH_TOKEN}@github.com/kwameandco/cdn.git" cdn-repo
-          mkdir -p cdn-repo/<script-name>
-          cp plugins/<script-name>/<script-name>.js     cdn-repo/<script-name>/<script-name>.js
-          cp plugins/<script-name>/<script-name>.min.js cdn-repo/<script-name>/<script-name>.min.js
-          cd cdn-repo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add <script-name>/
-          if ! git diff --staged --quiet; then
-            git commit -m "chore: sync <script-name> $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            git pull --rebase origin main
-            git push
-          fi
-```
-
-Replace every `<script-name>` with your actual script name (e.g. `kw-carousel`).
-
-### 3. Check the CDN_PUSH_TOKEN secret
-
-The `CDN_PUSH_TOKEN` secret must exist in the **webstudio** repo settings (Settings → Secrets and variables → Actions). It is a **fine-grained personal access token** scoped to this repo (`kwameandco/cdn`) with **Contents: Read and Write**.
-
-If the secret already exists for another script, no action needed — it's shared across all workflows.
-
-### 4. Merge and verify
-
-Push your script to `webstudio` main. The workflow runs automatically. After ~2 minutes, the file should be live at:
+After the run, the file is live at:
 
 ```
 https://cdn.jsdelivr.net/gh/kwameandco/cdn@main/<script-name>/<script-name>.min.js
 ```
+
+Read its `/*! … vX.Y.Z */` banner to confirm the version. If `@main` still serves the old
+build, it is jsDelivr's edge cache (up to seven days, purges are best-effort) — pin a tag or
+commit SHA on any page where that matters.
 
 ---
 
@@ -139,7 +97,7 @@ Automated commits follow this pattern:
 chore: sync <script-name> 2026-05-08T14:23:01Z
 ```
 
-The timestamp is UTC ISO 8601 from the moment the workflow ran. This makes it easy to correlate a CDN push with the webstudio commit that triggered it.
+The timestamp is UTC ISO 8601 from the moment the workflow ran. This makes it easy to correlate a CDN push with the clients commit it was built from.
 
 ---
 
