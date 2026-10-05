@@ -1,4 +1,4 @@
-/*! kw-giftshop v1.0.0 — gift-shop page, price table, enquiry form and carry banner */
+/*! kw-giftshop v1.3.0 — gift-shop page, price table, enquiry form and carry banner */
 
 /* Plain CSS, deliberately. The source this was lifted from lives in a
    Squarespace Custom CSS box, which compiles LESS — nesting, `@media @desktop`,
@@ -20,7 +20,7 @@
 /*! #gift-shop — page widths */
 #collection-6ab1613d15aeae1a003fa8ba .Main-content,
 #collection-6ab17aabd75f9017140d0910 .Main-content {
-  max-width: 1280px;
+  max-width: 1080px;
   margin-inline: auto;
 }
 
@@ -47,7 +47,7 @@
   font-size: 2rem;
 }
 
-/* Sticky image column. 768px is the template's own desktop edge; the /a-b-f
+/* Sticky, vertically centred image column. 768px is the template's own desktop edge; the /a-b-f
    grid in the Custom CSS box breaks at 800px instead, and the two disagree on
    purpose — this one interacts with Squarespace's own columns, so it follows
    the template. */
@@ -60,6 +60,37 @@
     position: sticky;
     top: 2rem;
   }
+
+  /* Equal-height columns, image centred against the text. 7.0 lays a row
+     out with floats, so each column is only as tall as its own blocks and a
+     panorama sits at the top of a tall text column. Flex on the row stretches
+     both columns to the taller one; flex on the image column centres the
+     block inside it. Sticky still works: a sticky flex item sticks within
+     its (now full-height) column.
+
+     Scoped with :has() to the row that directly holds a col-6 with an image
+     block — the outer row's child is a col-12, and the thumbnail gallery row
+     has no image block, so neither is touched. Desktop only: on mobile
+     Squarespace stacks columns with width:100% and no float, and a flex row
+     would squeeze them back side by side.
+
+     The clearfix ::before/::after would become empty flex items; harmless at
+     flex-start, but removed so justify-content can never space them. */
+  #collection-6ab17aabd75f9017140d0910 .sqs-row:has(> .sqs-col-6 .sqs-block-image) {
+    display: flex;
+    align-items: stretch;
+  }
+
+  #collection-6ab17aabd75f9017140d0910 .sqs-row:has(> .sqs-col-6 .sqs-block-image)::before,
+  #collection-6ab17aabd75f9017140d0910 .sqs-row:has(> .sqs-col-6 .sqs-block-image)::after {
+    content: none;
+  }
+
+  #collection-6ab17aabd75f9017140d0910 .sqs-row:has(> .sqs-col-6 .sqs-block-image) > .sqs-col-6:has(.sqs-block-image) {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
 }
 
 #collection-6ab17aabd75f9017140d0910 button.lightbox-handle {
@@ -71,6 +102,20 @@
   font-style: unset;
   text-wrap: balance;
   text-wrap: pretty;
+}
+
+/* Subtitle under the title: an all-italic first paragraph after the h1 renders as
+   the mock-ups' lighter line. Reference copy — the live version is
+   squarespace/gallery-keoki/custom-code/gift-shop.css. */
+#collection-6ab17aabd75f9017140d0910 h1 + p > em:only-child,
+#collection-6ab17aabd75f9017140d0910 .sqs-block:has(h1:last-child) + .sqs-block p:first-child > em:only-child {
+  color: var(--dim, #9a9a9a);
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+}
+
+#collection-6ab17aabd75f9017140d0910 h1 + p:has(> em:only-child) {
+  margin-top: 0.25em;
 }
 
 /*! #gift-shop — product list */
@@ -156,6 +201,52 @@
   border-color: rgba(128, 128, 128, .3);
 }
 
+/* Option descriptions: one `####` per line under an option, e.g. the four
+   lines under "Deluxe Limited Edition" on Elemental / Colors of Time. One h4
+   per line rather than one block of lines because a plain line after a
+   heading becomes a <p>, and every p in here is a price (column 2).
+   Each h4 spans the row below its option, so the price stays level with the
+   option title as in the mock-ups. Font is reset to inherit because the
+   template styles h4 as a heading. */
+.sqs-block-markdown .sqs-block-content:has(h3) > h4 {
+  grid-column: span 2; /* not 1 / -1: LESS divides it if this is ever pasted into the Custom CSS box */
+  margin: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: .85em;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: inherit;
+  text-transform: none;
+  color: inherit;
+}
+
+/* Close the gap between an option and its description, and put the row's
+   breathing room under the last description line instead. */
+.sqs-block-markdown .sqs-block-content:has(h3) > h3:has(+ p + h4),
+.sqs-block-markdown .sqs-block-content:has(h3) > h3:has(+ p + h4) + p {
+  padding-bottom: .15em;
+}
+
+/* No divider above the first option, or the first under a `##` heading. */
+.sqs-block-markdown .sqs-block-content:has(h3) > h3:first-of-type,
+.sqs-block-markdown .sqs-block-content:has(h3) > h3:first-of-type + p,
+.sqs-block-markdown .sqs-block-content:has(h3) > h2 + h3,
+.sqs-block-markdown .sqs-block-content:has(h3) > h2 + h3 + p {
+  border-top: 0;
+}
+
+.sqs-block-markdown .sqs-block-content:has(h3) > h4:not(:has(+ h4)) {
+  padding-bottom: .62em;
+}
+
+/* In the mock-ups, tables that carry descriptions (Elemental, Colors of
+   Time) set every option title in bold; the plain size tables (Prints on
+   Metal, Acrylic Blocks) do not. So: bold only when the table has an h4. */
+.sqs-block-markdown .sqs-block-content:has(h4) > h3 {
+  font-weight: 600;
+}
+
 /*! Enquiry form */
 
 /* The real Artwork field, visually hidden rather than display:none — it is a
@@ -214,7 +305,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  max-width: 1280px;
+  max-width: 1080px;
   margin-top: 2rem;
   margin-inline: auto;
   padding: .75rem 1rem;

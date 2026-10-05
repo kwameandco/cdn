@@ -1,10 +1,10 @@
-/*! kw-giftshop v1.0.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
+/*! kw-giftshop v1.1.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
 (function () {
   "use strict";
 
   if (window.kwGiftshop) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.0.0";
+  var VERSION = "1.1.0";
 
   /* Config is read from the page, so the wording and the field labels stay
      editable in the Code Injection box without republishing to the CDN:
@@ -19,7 +19,7 @@
   var LOCK_LABELS = CFG.lockLabels || ['product', 'product line'];
   var CARRY_TEXT  = CFG.carryText  || 'We have kept this one with you — it will be filled in on the enquiry form.';
   var DEBUG = CFG.debug === true;
-  var DEBUG = false;   //! set true to trace on the live page
+  var GIFT_PATH = CFG.giftPath || '/gift-shop';
 
   function log() {
     if (DEBUG && window.console) console.log.apply(console, ['[kw]'].concat([].slice.call(arguments)));
@@ -80,7 +80,50 @@
      FORWARD: if this page already has ?art= in its own URL, put it on every
      internal link, so the artwork is not dropped between the gift-shop index
      and a product page. */
+  /* PATCH, not design (K, 2026-10-05). The "Learn More" artwork pages are blog
+     posts, and many of their gift-shop links were typed as the full address —
+     https://gallery-keoki.squarespace.com/gift-shop — with no ?art=. Fixing
+     them by hand is the right answer and is not happening before launch, so on
+     a blog POST (not the blog list) any link to the gift-shop page with no
+     query string is rewritten to the bare-marker form, GIFT_PATH + "?art=",
+     and the FILL step below then stamps the artwork title into it.
+
+     Matched on the path, not the host: the same links will read gallerykeoki.com
+     once the domain moves, and a relative "/gift-shop" is the same mistake.
+     Only links to THIS site are touched (same host, or a host on the
+     squarespace.com / gallerykeoki.com domains), and only when the link has
+     no ?query and no #hash of its own — a link someone has already set up is
+     left alone. Delete this function once the posts are fixed. */
+  /* Scoped to the "Learn More Pages" blog by its collection id (K, 2026-10-05):
+     every post in it carries body.collection-5e31132afdec1a2aeae00a18, which is
+     narrower than "any blog". The list page shares the id, so view-list is
+     excluded — its h1 is the blog's name, which would be stamped in as the
+     artwork. Collection ids change if the blog is deleted and recreated; the
+     patch then silently does nothing. */
+  var BLOG_ID = CFG.blogCollection || '5e31132afdec1a2aeae00a18';
+
+  function isBlogPost() {
+    var b = document.body;
+    return !!b && b.classList.contains('collection-' + BLOG_ID) && !b.classList.contains('view-list');
+  }
+
+  function giftLinkPatch() {
+    if (!isBlogPost()) return;
+    var links = document.querySelectorAll('a[href*="' + GIFT_PATH + '"]:not([data-kw-patched])');
+    for (var i = 0; i < links.length; i++) {
+      var a = links[i], raw = a.getAttribute('href'), u;
+      try { u = new URL(raw, location.href); } catch (e) { continue; }
+      var ours = u.host === location.host || /(^|\.)(squarespace\.com|gallerykeoki\.com)$/.test(u.hostname);
+      if (!ours || u.search || u.hash) continue;
+      if (u.pathname.replace(/\/+$/, '') !== GIFT_PATH) continue;
+      a.setAttribute('href', GIFT_PATH + '?art=');
+      a.setAttribute('data-kw-patched', raw);
+      log('blog link patched:', raw);
+    }
+  }
+
   function linkPass() {
+    giftLinkPatch();
     var here = param('art');
     var mine = pageTitle();
 
