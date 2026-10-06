@@ -1,10 +1,10 @@
-/*! kw-giftshop v1.2.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
+/*! kw-giftshop v1.3.1 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
 (function () {
   "use strict";
 
   if (window.kwGiftshop) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.2.0";
+  var VERSION = "1.3.1";
 
   /* Config is read from the page, so the wording and the field labels stay
      editable in the Code Injection box without republishing to the CDN:
@@ -26,25 +26,39 @@
      page is deleted and recreated — the feature then silently stops there.
 
      giftPages — the format pages with a gallery of artworks to choose from:
-       Prints on Metal, Acrylic Blocks, Art Cards (K, 2026-10-05). The carry
-       banner, the Artwork dropdown, the lightbox "Choose this artwork" button
-       and the optional hover swap run here and nowhere else. Elemental Book,
-       Colors of Time and Greeting Cards are deliberately NOT in it: there is
-       no artwork to choose on them.
+       Prints on Metal, Acrylic Blocks, Art Cards (K, 2026-10-05) and Greeting
+       Cards (gallery at the top of the page, K, 2026-10-06). The carry banner,
+       the Artwork dropdown, the lightbox "Choose this artwork" button and the
+       optional image swaps run here and nowhere else. Elemental Book and
+       Colors of Time are deliberately NOT in it: nothing to choose on them.
      indexPages — the Gifts index: carry banner only (text, no thumbnail).
      maxArtworks — how many artworks one enquiry may carry, per page id.
        Default 1. Art Cards may become 3 ("3 for $50"): set
        maxArtworks: { '6ac3d16be1ae290e6efbf27b': 3 } in the footer config.
-     hoverSwap — true makes hovering a gallery image swap it into the page's
-       main image block (a thumbnail switcher). Off by default: not asked for
-       yet, built ahead of the request so it is a config change, not a build.
+     Three ways to change the page's MAIN image block (the one image block on
+     the page), all off by default and combinable — built ahead of a client
+     request so each is a config change, not a build:
+       hoverSwap    — hovering a gallery image shows it (thumbnail switcher);
+       lightboxSwap — the image showing in the gallery lightbox is mirrored
+                      into it (on open and as the visitor steps through);
+       carrySwap    — the carried / chosen artwork is shown in it.
+     With any of them on, the main image is TOP-aligned instead of centred
+     (body.kw-swap — see the CSS): a centred image jumps every time a swap
+     changes its height.
      openFormOnChoose — after "Choose this artwork", close the lightbox and
-       open the enquiry form. Default true. */
-  var GIFT_PAGES = CFG.giftPages || ['6ac3adbacbdca4526632eca7', '6ab17aabd75f9017140d0910', '6ac3d16be1ae290e6efbf27b'];
+       open the enquiry form. Default true.
+     clickImageToChoose — clicking the photograph in the lightbox does the
+       same as the button (as in the mock-up). Default true.
+     chooseTip — the small line under the button. "" hides it. */
+  var GIFT_PAGES = CFG.giftPages || ['6ac3adbacbdca4526632eca7', '6ab17aabd75f9017140d0910', '6ac3d16be1ae290e6efbf27b', '6ac3c22296f0bf2d7998d606'];
   var INDEX_PAGES = CFG.indexPages || ['6ab1613d15aeae1a003fa8ba'];
   var MAX_ART = CFG.maxArtworks || {};
   var HOVER_SWAP = CFG.hoverSwap === true;
+  var LIGHTBOX_SWAP = CFG.lightboxSwap === true;
+  var CARRY_SWAP = CFG.carrySwap === true;
   var OPEN_FORM = CFG.openFormOnChoose !== false;
+  var CLICK_IMAGE = CFG.clickImageToChoose !== false;
+  var CHOOSE_TIP = typeof CFG.chooseTip === 'string' ? CFG.chooseTip : 'or click the photograph itself';
   var CHOOSE_TEXT = CFG.chooseText || 'Choose this artwork';
   var CHOSEN_TEXT = CFG.chosenText || 'Chosen \u2713';
 
@@ -78,6 +92,39 @@
   function param(name) {
     var m = new RegExp('[?&]' + name + '=([^&#]*)').exec(location.search);
     return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : '';
+  }
+
+  /* The carried artwork's IMAGE travels in the link as &img=<CDN url>, so a
+     page with no gallery holding it (the Gifts index) can still show it in
+     the banner. Only Squarespace's own image hosts are accepted — the value
+     comes from a URL anyone can type. Stored without its ?format= query. */
+  function cleanImg(u) {
+    if (!u) return '';
+    try {
+      var x = new URL(u, location.href);
+      if (!/(^|\.)(squarespace-cdn\.com|squarespace\.com)$/.test(x.hostname)) return '';
+      return x.origin + x.pathname;
+    } catch (e) { return ''; }
+  }
+
+  /* This artwork page's own image, for &img=: og:image (Squarespace sets it to
+     the post's image), else the first image block on the page. */
+  function pageImage() {
+    var u = cleanImg(meta('meta[property="og:image"]'));
+    if (u) return u;
+    var im = document.querySelector('.Main-content .sqs-block-image img, .Main-content img[data-image]');
+    return im ? cleanImg(im.getAttribute('data-image') || im.getAttribute('data-src') || im.getAttribute('src')) : '';
+  }
+
+  function setUrlParams(o) {
+    try {
+      var u = new URL(location.href);
+      for (var k in o) {
+        if (o[k]) u.searchParams.set(k, o[k]);
+        else u.searchParams.delete(k);
+      }
+      history.replaceState(history.state, '', u.toString());
+    } catch (e) {}
   }
 
   function meta(sel) {
@@ -166,7 +213,9 @@
   function linkPass() {
     giftLinkPatch();
     var here = param('art');
+    var herePic = cleanImg(param('img'));
     var mine = pageTitle();
+    var pic = '';
 
     var links = document.querySelectorAll('a[href^="/"]');
     for (var i = 0; i < links.length; i++) {
@@ -179,13 +228,18 @@
 
       if (/[?&]art=(&|$)/.test(href)) {
         if (!mine) continue;
-        a.setAttribute('href', href.replace(/([?&]art=)(&|$)/, '$1' + encodeURIComponent(mine) + '$2'));
+        if (!pic) pic = pageImage();
+        href = href.replace(/([?&]art=)(&|$)/, '$1' + encodeURIComponent(mine) + '$2');
+        if (pic && !/[?&]img=/.test(href)) href += '&img=' + encodeURIComponent(pic);
+        a.setAttribute('href', href);
         a.setAttribute('data-kw-stamped', '1');
         continue;
       }
 
       if (!here || href.indexOf('art=') !== -1) continue;
-      a.setAttribute('href', href + (href.indexOf('?') === -1 ? '?' : '&') + 'art=' + encodeURIComponent(here));
+      href += (href.indexOf('?') === -1 ? '?' : '&') + 'art=' + encodeURIComponent(here);
+      if (herePic) href += '&img=' + encodeURIComponent(herePic);
+      a.setAttribute('href', href);
       a.setAttribute('data-kw-stamped', '1');
     }
   }
@@ -223,6 +277,12 @@
   var FORMS = [];   /* sync() of every enhanced form, so a choice made in the
                        lightbox reaches a form that is already on the page */
 
+  function findArt(list, title) {
+    var k = norm(title);
+    for (var i = 0; i < list.length; i++) if (norm(list[i].title) === k) return list[i];
+    return null;
+  }
+
   function chosen() {
     if (CHOSEN === null) {
       var a = strip(param('art'));
@@ -250,16 +310,14 @@
     /* Keep the URL in step (first choice only — ?art= carries one title) so a
        refresh or a shared link keeps it. replaceState: no new history entry,
        so "Choose a different artwork" (history.back) still leaves the page. */
-    try {
-      var u = new URL(location.href);
-      u.searchParams.set('art', c[0]);
-      history.replaceState(history.state, '', u.toString());
-    } catch (e) {}
+    var list = artworks(), first = findArt(list, c[0]);
+    setUrlParams({ art: c[0], img: first ? first.full : '' });
 
     for (var i = 0; i < FORMS.length; i++) FORMS[i]();
     var old = document.querySelector('.kw-carry');
     if (old) old.parentNode.removeChild(old);
-    banner(artworks());
+    banner(list);
+    if (CARRY_SWAP && first) swapHero(first.full, first.dims, first.title);
     log('chosen:', c.join(' | '));
     return true;
   }
@@ -273,12 +331,20 @@
     if (!onGiftPage() && !onIndexPage()) return;
     var c = chosen();
     if (!c.length || document.querySelector('.kw-carry')) return;
-    var host = document.querySelector('.Main .Main-content .sqs-layout');
+    /* Where it goes: a Code Block holding <div id="kw-carry-slot"></div> wins
+       (K, 2026-10-06 — on the Gifts index it sits between the intro text and
+       the product grid; Emily can move the block in the editor). Without
+       one, the top of the page content, as before. */
+    var slot = document.getElementById('kw-carry-slot');
+    var host = slot || document.querySelector('.Main .Main-content .sqs-layout');
     if (!host) return;
 
-    var thumb = '', key = norm(c[0]), i;
-    for (i = 0; i < list.length; i++) {
-      if (norm(list[i].title) === key) { thumb = list[i].thumb; break; }
+    /* Thumbnail: this page's gallery first, else the image carried in &img=
+       (the Gifts index has no gallery). */
+    var hit = findArt(list, c[0]), thumb = hit ? hit.thumb : '';
+    if (!thumb) {
+      var carried = cleanImg(param('img'));
+      if (carried) thumb = carried + '?format=300w';
     }
 
     var d = document.createElement('div');
@@ -310,32 +376,55 @@
     });
     d.appendChild(clear);
 
-    host.insertBefore(d, host.firstChild);
+    if (slot) slot.appendChild(d);
+    else host.insertBefore(d, host.firstChild);
     log('carry banner:', c.join(' | '), thumb ? '(with thumbnail)' : '(no gallery here)');
+  }
+
+  /* Gallery titles live in different places per gallery design. A grid
+     gallery puts them on the anchor as data-title/data-description; a
+     STACKED gallery (references/gallery-block-world-adventure.md, the only
+     live capture) has no data-title at all — the title is the .meta-title in
+     the .meta sibling after the .image-wrapper, else the img alt. Reading
+     data-title alone returned an empty list on a stacked gallery, and an
+     empty list meant the form was never enhanced, so ?art= never reached it. */
+  function isFilename(t) { return /\.(jpe?g|png|gif|webp|tiff?)$/i.test(t) || /_\d{3,}$/.test(t); }
+
+  function itemMeta(im) {
+    var a = im.closest('[data-title]');
+    if (a && a.getAttribute('data-title').trim()) {
+      return { title: a.getAttribute('data-title').trim(), desc: a.getAttribute('data-description') || '' };
+    }
+    var w = im.closest('.image-wrapper, .slide, .margin-wrapper') || im.parentNode;
+    var m = w.querySelector('.meta');
+    if (!m) { var n = w.nextElementSibling; if (n && n.classList.contains('meta')) m = n; }
+    var mt = m && m.querySelector('.meta-title');
+    var md = m && m.querySelector('.meta-description');
+    var t = (mt && mt.textContent.trim()) || (im.getAttribute('alt') || '').trim();
+    return { title: isFilename(t) ? '' : t, desc: md ? md.innerHTML : '' };
   }
 
   function artworks() {
     var out = [], seen = {};
-    var nodes = document.querySelectorAll('.sqs-block-gallery [data-title], .sqs-gallery [data-title], a[data-title]');
-    for (var i = 0; i < nodes.length; i++) {
-      var a = nodes[i];
-      var t = (a.getAttribute('data-title') || '').trim();
+    var imgs = document.querySelectorAll('.sqs-block-gallery img[data-image], .sqs-block-gallery img[data-src], .sqs-gallery img[data-image], .sqs-gallery img[data-src]');
+    for (var i = 0; i < imgs.length; i++) {
+      var im = imgs[i];
+      if (im.closest('noscript, .sqs-lightbox-slide')) continue;
+      var meta = itemMeta(im);
+      var t = meta.title;
       var key = t.toLowerCase();
       if (!t || seen[key]) continue;
       seen[key] = 1;
       var tmp = document.createElement('div');
-      tmp.innerHTML = a.getAttribute('data-description') || '';
+      tmp.innerHTML = meta.desc;
       var sub = (tmp.textContent || '').replace(/\s+/g, ' ').trim();
       /* data-image/data-src are the stable CDN base on every gallery image
          (confirmed: references/gallery-block-world-adventure.md) — src is
-         only populated once Squarespace's lazy-loader has actually run, so
-         checking it first was returning nothing for any image not yet
-         on-screen. href is the last resort: on a grid/lightbox anchor it IS
-         the full-res CDN url (references/live-page-capture-2026-09-11.md). */
-      var im = a.querySelector('img');
-      var src = (im && (im.getAttribute('data-image') || im.getAttribute('data-src') || im.getAttribute('src')))
-             || a.getAttribute('data-image') || a.getAttribute('href') || '';
-      out.push({ title: t, sub: sub, thumb: src.split('?')[0] + '?format=300w' });
+         only populated once Squarespace's lazy-loader has actually run. */
+      var src = im.getAttribute('data-image') || im.getAttribute('data-src') || im.getAttribute('src') || '';
+      var full = src.split('?')[0];
+      out.push({ title: t, sub: sub, thumb: full + '?format=300w', full: full,
+                 dims: im.getAttribute('data-image-dimensions') || '' });
     }
     out.sort(function (x, y) { return x.title.localeCompare(y.title); });
     return out;
@@ -524,12 +613,40 @@
         });
         btn.addEventListener('click', onChoose);
         meta.appendChild(btn);
+        if (CHOOSE_TIP) {
+          var tip = document.createElement('div');
+          tip.className = 'kw-choose-tip';
+          tip.textContent = CHOOSE_TIP;
+          meta.appendChild(tip);
+        }
+        if (CLICK_IMAGE) img.classList.add('kw-clickable');
+      }
+      if (!img.getAttribute('data-kw-title')) img.setAttribute('data-kw-title', title);
+      if (LIGHTBOX_SWAP && slide.classList.contains('sqs-active-slide')) {
+        swapHero(cleanImg(img.getAttribute('data-image') || img.getAttribute('data-src') || img.getAttribute('src')),
+                 img.getAttribute('data-image-dimensions') || '', title);
       }
       var on = isChosen(title);
       var want = on ? CHOSEN_TEXT : CHOOSE_TEXT;
       if (btn.textContent !== want) btn.textContent = want;
       btn.classList.toggle('kw-is-chosen', on);
     }
+  }
+
+  /* Clicking the photograph itself chooses it (mock-up behaviour). Captured
+     at the document so it runs BEFORE Squarespace's own lightbox handler,
+     which would otherwise step to the next slide. */
+  function onImageClick(e) {
+    if (!CLICK_IMAGE || !onGiftPage()) return;
+    var img = e.target && e.target.closest && e.target.closest('.sqs-lightbox-slide img[data-kw-title]');
+    if (!img) return;
+    var slide = img.closest('.sqs-lightbox-slide');
+    var btn = slide && slide.querySelector('.kw-choose');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    if (e.type === 'click') btn.click();
   }
 
   function onChoose(e) {
@@ -577,36 +694,57 @@
     return HERO;
   }
 
-  function onHover(e) {
-    var t = e.target;
-    if (!t || !t.closest) return;
-    var slide = t.closest('.sqs-block-gallery .slide, .sqs-block-gallery [data-title]');
-    if (!slide) return;
-    var im = slide.matches('img') ? slide : slide.querySelector('img');
-    var src = im && (im.getAttribute('data-image') || im.getAttribute('data-src') || '');
+  function swapHero(src, dims, alt) {
+    src = cleanImg(src);
     if (!src) return;
     var hero = heroImage();
-    if (!hero) return;
-    src = src.split('?')[0];
-    if (hero.img.getAttribute('data-kw-swap') === src) return;
+    if (!hero || hero.img.getAttribute('data-kw-swap') === src) return;
     hero.img.setAttribute('data-kw-swap', src);
     hero.img.setAttribute('data-src', src);
     hero.img.setAttribute('data-image', src);
     hero.img.removeAttribute('srcset');
     hero.img.src = src + '?format=1500w';
-    hero.img.alt = im.getAttribute('alt') || slide.getAttribute('data-title') || '';
-    var dim = (im.getAttribute('data-image-dimensions') || '').split('x');
+    hero.img.alt = alt || '';
+    var dim = (dims || '').split('x');
     if (hero.box && dim.length === 2 && +dim[0] > 0) {
       hero.box.style.paddingBottom = (+dim[1] / +dim[0] * 100) + '%';
     }
+    log('main image ->', alt || src);
   }
 
-  var hoverBound = false;
-  function bindHover() {
-    if (!HOVER_SWAP || hoverBound || !onGiftPage()) return;
-    hoverBound = true;
-    document.addEventListener('mouseover', onHover);
-    log('hover swap on');
+  function onHover(e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var slide = t.closest('.sqs-block-gallery .slide, .sqs-block-gallery .image-wrapper, .sqs-block-gallery [data-title]');
+    if (!slide) return;
+    var im = slide.matches('img') ? slide : slide.querySelector('img[data-image], img[data-src]');
+    if (!im) return;
+    swapHero(im.getAttribute('data-image') || im.getAttribute('data-src') || '',
+             im.getAttribute('data-image-dimensions') || '',
+             itemMeta(im).title);
+  }
+
+  /* Once per page: listeners, the body class the CSS keys on, and the
+     carried artwork into the main image if carrySwap is on. */
+  var bound = false, carriedShown = false;
+  function bindPage() {
+    if (!onGiftPage()) return;
+    if (!bound) {
+      bound = true;
+      if (HOVER_SWAP) document.addEventListener('mouseover', onHover);
+      document.addEventListener('click', onImageClick, true);
+      document.addEventListener('mousedown', onImageClick, true);
+      document.addEventListener('mouseup', onImageClick, true);
+      if (HOVER_SWAP || LIGHTBOX_SWAP || CARRY_SWAP) document.body.classList.add('kw-swap');
+    }
+    if (CARRY_SWAP && !carriedShown && chosen().length) {
+      var hit = findArt(artworks(), chosen()[0]);
+      var src = hit ? hit.full : cleanImg(param('img'));
+      if (src && heroImage()) {
+        carriedShown = true;
+        swapHero(src, hit ? hit.dims : '', chosen()[0]);
+      }
+    }
   }
 
   function tick() {
@@ -614,9 +752,10 @@
     var list = artworks();
     banner(list);
     if (!onGiftPage()) return;
+    bindPage();
     lightboxButtons();
-    bindHover();
-    if (!list.length) return;
+    /* No early return on an empty gallery list: a carried ?art= must still
+       reach the form (enhance() adds an unmatched title as its own option). */
     var forms = document.querySelectorAll('form');
     for (var i = 0; i < forms.length; i++) enhance(forms[i], list);
   }
@@ -650,12 +789,12 @@
     }
     console.log('context:', d === document ? 'top' : 'iframe');
     console.log('markdown blocks:', d.querySelectorAll('.sqs-block-markdown').length);
-    console.log('gallery items:', d.querySelectorAll('[data-title]').length);
+    console.log('gallery artworks found:', JSON.stringify(artworks().map(function (a) { return a.title; })));
     console.log('forms:', d.querySelectorAll('form').length);
     var want = param('art');
     console.log('?art=', want || '(none)');
     if (want) {
-      var titles = [].map.call(d.querySelectorAll('[data-title]'), function (n) { return n.getAttribute('data-title'); });
+      var titles = artworks().map(function (a) { return a.title; });
       var ok = titles.filter(function (t) { return norm(t) === norm(want); });
       console.log('matches a gallery title:', ok.length ? 'yes — ' + ok[0] : 'NO (passed through as typed)');
     }
