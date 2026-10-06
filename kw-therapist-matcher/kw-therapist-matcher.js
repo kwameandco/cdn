@@ -115,6 +115,15 @@
     return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : full;
   }
 
+  // A therapist with no Clinician ID in the CMS still renders the anchor, with an empty
+  // data-spwidget-clinician-id. That button would open a booking for nobody — drop it.
+  function bookingAnchor(el) {
+    const a = el.querySelector('[data-kwtm-book]');
+    if (!a) return null;
+    const id = a.getAttribute('data-spwidget-clinician-id');
+    return id !== null && !id.trim() ? null : a;
+  }
+
   function readRoster() {
     return Array.from(doc.querySelectorAll('[data-kwtm-therapist]')).map((el) => {
       const name = text(el, 'name');
@@ -139,7 +148,7 @@
         pronouns: text(el, 'pronouns'),
         quote: text(el, 'quote').replace(/^["“”]+|["“”]+$/g, ''),
         photo: img && img.getAttribute('src') && !/placeholder/i.test(img.className) ? img.getAttribute('src') : '',
-        book: el.querySelector('[data-kwtm-book]'),
+        book: bookingAnchor(el),
         accepts
       };
     }).filter((t) => t.name);
