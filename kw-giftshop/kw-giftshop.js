@@ -1,10 +1,10 @@
-/*! kw-giftshop v1.1.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
+/*! kw-giftshop v1.2.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
 (function () {
   "use strict";
 
   if (window.kwGiftshop) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.1.0";
+  var VERSION = "1.2.0";
 
   /* Config is read from the page, so the wording and the field labels stay
      editable in the Code Injection box without republishing to the CDN:
@@ -20,6 +20,47 @@
   var CARRY_TEXT  = CFG.carryText  || 'We have kept this one with you — it will be filled in on the enquiry form.';
   var DEBUG = CFG.debug === true;
   var GIFT_PATH = CFG.giftPath || '/gift-shop';
+
+  /* WHERE each feature runs, by Squarespace 7.0 collection id (each gift page
+     is its own collection; body carries "collection-<id>"). Ids change if a
+     page is deleted and recreated — the feature then silently stops there.
+
+     giftPages — the format pages with a gallery of artworks to choose from:
+       Prints on Metal, Acrylic Blocks, Art Cards (K, 2026-10-05). The carry
+       banner, the Artwork dropdown, the lightbox "Choose this artwork" button
+       and the optional hover swap run here and nowhere else. Elemental Book,
+       Colors of Time and Greeting Cards are deliberately NOT in it: there is
+       no artwork to choose on them.
+     indexPages — the Gifts index: carry banner only (text, no thumbnail).
+     maxArtworks — how many artworks one enquiry may carry, per page id.
+       Default 1. Art Cards may become 3 ("3 for $50"): set
+       maxArtworks: { '6ac3d16be1ae290e6efbf27b': 3 } in the footer config.
+     hoverSwap — true makes hovering a gallery image swap it into the page's
+       main image block (a thumbnail switcher). Off by default: not asked for
+       yet, built ahead of the request so it is a config change, not a build.
+     openFormOnChoose — after "Choose this artwork", close the lightbox and
+       open the enquiry form. Default true. */
+  var GIFT_PAGES = CFG.giftPages || ['6ac3adbacbdca4526632eca7', '6ab17aabd75f9017140d0910', '6ac3d16be1ae290e6efbf27b'];
+  var INDEX_PAGES = CFG.indexPages || ['6ab1613d15aeae1a003fa8ba'];
+  var MAX_ART = CFG.maxArtworks || {};
+  var HOVER_SWAP = CFG.hoverSwap === true;
+  var OPEN_FORM = CFG.openFormOnChoose !== false;
+  var CHOOSE_TEXT = CFG.chooseText || 'Choose this artwork';
+  var CHOSEN_TEXT = CFG.chosenText || 'Chosen \u2713';
+
+  function pageId(ids) {
+    var b = document.body;
+    if (!b) return '';
+    for (var i = 0; i < ids.length; i++) if (b.classList.contains('collection-' + ids[i])) return ids[i];
+    return '';
+  }
+  function onGiftPage() { return !!pageId(GIFT_PAGES); }
+  function onIndexPage() { return !!pageId(INDEX_PAGES); }
+  function maxArt() {
+    var id = pageId(GIFT_PAGES);
+    var n = id ? parseInt(MAX_ART[id], 10) : 1;
+    return n > 1 ? n : 1;
+  }
 
   function log() {
     if (DEBUG && window.console) console.log.apply(console, ['[kw]'].concat([].slice.call(arguments)));
@@ -173,17 +214,69 @@
       .trim();
   }
 
+  /* ONE list of chosen artworks for the page. Everything reads from it:
+     the banner, every enhanced form, the lightbox buttons. It starts from
+     ?art= (one title) and grows when the visitor presses "Choose this
+     artwork" in the lightbox. Up to maxArt() entries; with 1 a new choice
+     replaces the old one. */
+  var CHOSEN = null;
+  var FORMS = [];   /* sync() of every enhanced form, so a choice made in the
+                       lightbox reaches a form that is already on the page */
+
+  function chosen() {
+    if (CHOSEN === null) {
+      var a = strip(param('art'));
+      CHOSEN = a ? [a] : [];
+    }
+    return CHOSEN;
+  }
+
+  function isChosen(title) {
+    var k = norm(title), c = chosen();
+    for (var i = 0; i < c.length; i++) if (norm(c[i]) === k) return true;
+    return false;
+  }
+
+  /* Returns false when the list is already full (multi-pick pages). */
+  function choose(title) {
+    title = strip(title);
+    if (!title) return false;
+    var c = chosen(), max = maxArt();
+    if (isChosen(title)) return true;
+    if (max === 1) c.length = 0;
+    else if (c.length >= max) return false;
+    c.push(title);
+
+    /* Keep the URL in step (first choice only — ?art= carries one title) so a
+       refresh or a shared link keeps it. replaceState: no new history entry,
+       so "Choose a different artwork" (history.back) still leaves the page. */
+    try {
+      var u = new URL(location.href);
+      u.searchParams.set('art', c[0]);
+      history.replaceState(history.state, '', u.toString());
+    } catch (e) {}
+
+    for (var i = 0; i < FORMS.length; i++) FORMS[i]();
+    var old = document.querySelector('.kw-carry');
+    if (old) old.parentNode.removeChild(old);
+    banner(artworks());
+    log('chosen:', c.join(' | '));
+    return true;
+  }
+
   /* Markup matches .carry in mockups/gift-shop-flow.html — the treatment the
      client has already seen. The thumbnail only appears where a gallery on
      this page holds the artwork, so the gift-shop index gets the text form
-     and a product page gets the picture. */
+     and a product page gets the picture. Gift pages and the index only:
+     Elemental, Colors of Time and Greeting Cards have nothing to carry. */
   function banner(list) {
-    var art = strip(param('art'));
-    if (!art || document.querySelector('.kw-carry')) return;
+    if (!onGiftPage() && !onIndexPage()) return;
+    var c = chosen();
+    if (!c.length || document.querySelector('.kw-carry')) return;
     var host = document.querySelector('.Main .Main-content .sqs-layout');
     if (!host) return;
 
-    var thumb = '', key = norm(art), i;
+    var thumb = '', key = norm(c[0]), i;
     for (i = 0; i < list.length; i++) {
       if (norm(list[i].title) === key) { thumb = list[i].thumb; break; }
     }
@@ -200,7 +293,7 @@
 
     var t = document.createElement('div');
     var b = document.createElement('b');
-    b.textContent = art;
+    b.textContent = c.join(', ');
     t.appendChild(b);
     var msg = document.createElement('span');
     msg.className = 'kw-carry-msg';
@@ -218,7 +311,7 @@
     d.appendChild(clear);
 
     host.insertBefore(d, host.firstChild);
-    log('carry banner:', art, thumb ? '(with thumbnail)' : '(no gallery here)');
+    log('carry banner:', c.join(' | '), thumb ? '(with thumbnail)' : '(no gallery here)');
   }
 
   function artworks() {
@@ -264,6 +357,15 @@
     return null;
   }
 
+  /* The Artwork field becomes N dropdowns ("slots"), N = maxArt(): one on
+     most pages, up to 3 on Art Cards if that is switched on. Each slot lists
+     this page's gallery artworks; the chosen titles are written into the real
+     (visually hidden) Text field joined with "; ", so the notification email
+     reads "Artwork: Holden's Line; Infinity". The preview under the slots
+     shows each choice with its thumbnail.
+
+     Slots and the shared CHOSEN list stay in step both ways: a dropdown change
+     rewrites CHOSEN, and a lightbox choice calls sync() to repaint the slots. */
   function enhance(scope, list) {
     var lock = inputFor(scope, LOCK_LABELS);
     if (lock && !lock.getAttribute('data-kw-ready')) {
@@ -275,91 +377,245 @@
     var input = inputFor(scope, ART_LABELS);
     if (!input || input.getAttribute('data-kw-ready')) return;
 
-    var sel = document.createElement('select');
-    sel.className = 'field-element kw-art';   /*! field-element: the template styles it */
-    sel.setAttribute('aria-label', 'Artwork');
-    sel.innerHTML = '<option value="">Choose an artwork…</option>';
-    for (var i = 0; i < list.length; i++) {
+    var max = maxArt();
+    list = list.slice();
+    var slots = [];
+
+    function indexOf(title) {
+      var k = norm(title);
+      for (var j = 0; j < list.length; j++) if (norm(list[j].title) === k) return j;
+      /* An artwork can legitimately not be in this format's gallery, and a
+         title can be genuinely misspelled. Writing the value into the hidden
+         input alone was wrong: the dropdown still read "Choose an artwork…",
+         so from the visitor's side nothing had carried through. Add it as a
+         real option instead — what is attached is what is shown. */
+      list.push({ title: strip(title), sub: '', thumb: '' });
+      for (var s = 0; s < slots.length; s++) addOption(slots[s], list.length - 1);
+      log('artwork matched no gallery title, added as an option:', title);
+      return list.length - 1;
+    }
+
+    function addOption(sel, i) {
       var o = document.createElement('option');
       o.value = String(i);
       o.textContent = list[i].title;
       sel.appendChild(o);
     }
 
-    var pick = document.createElement('div');
-    pick.className = 'kw-pick kw-empty';
-    pick.textContent = 'the artwork you choose appears here';
-
-    function paint() {
-      if (sel.value === '') {
-        pick.className = 'kw-pick kw-empty';
-        pick.textContent = 'the artwork you choose appears here';
-        setField(input, '');
-        return;
-      }
-      var a = list[Number(sel.value)];
-      pick.className = 'kw-pick';
-      pick.innerHTML = '';
-      if (a.thumb) {
-        var im = document.createElement('img');
-        im.src = a.thumb;
-        im.alt = a.title;
-        pick.appendChild(im);
-      }
-      var d = document.createElement('div');
-      var bb = document.createElement('b');
-      bb.textContent = a.title;
-      d.appendChild(bb);
-      if (a.sub) {
-        var sb = document.createElement('span');
-        sb.className = 'kw-sub';
-        sb.textContent = a.sub;
-        d.appendChild(sb);
-      }
-      pick.appendChild(d);
-      setField(input, a.title);
+    for (var n = 0; n < max; n++) {
+      var sel = document.createElement('select');
+      sel.className = 'field-element kw-art';   /*! field-element: the template styles it */
+      sel.setAttribute('aria-label', max > 1 ? 'Artwork ' + (n + 1) : 'Artwork');
+      sel.innerHTML = '<option value="">' + (n === 0 ? 'Choose an artwork…' : 'Add another artwork (optional)…') + '</option>';
+      for (var i = 0; i < list.length; i++) addOption(sel, i);
+      sel.addEventListener('change', fromSlots);
+      slots.push(sel);
+      input.parentNode.insertBefore(sel, input);
     }
-    sel.addEventListener('change', paint);
 
-    input.parentNode.insertBefore(sel, input);
+    var pick = document.createElement('div');
     input.parentNode.insertBefore(pick, input);
     input.classList.add('kw-hide');
     input.setAttribute('tabindex', '-1');
     input.setAttribute('data-kw-ready', '1');
 
-    /* the artwork the visitor arrived with, matched case-insensitively
-       because the gallery title and the artwork page's h1 are typed by hand
-       in two different places */
-    var want = param('art');
-    if (want) {
-      var hit = -1, key = norm(want);
-      for (var j = 0; j < list.length; j++) {
-        if (norm(list[j].title) === key) { hit = j; break; }
+    function paint(titles) {
+      setField(input, titles.join('; '));
+      pick.innerHTML = '';
+      if (!titles.length) {
+        pick.className = 'kw-pick kw-empty';
+        pick.textContent = max > 1 ? 'the artworks you choose appear here' : 'the artwork you choose appears here';
+        return;
       }
-      if (hit === -1) {
-        /* An artwork can legitimately not be in this format's gallery, and a
-           title can be genuinely misspelled. Writing the value into the hidden
-           input alone was wrong: the dropdown still read "Choose an artwork…",
-           so from the visitor's side nothing had carried through. Add it as a
-           real option instead — what is attached is what is shown. */
-        list = list.concat([{ title: strip(want), sub: '', thumb: '' }]);
-        hit = list.length - 1;
-        var extra = document.createElement('option');
-        extra.value = String(hit);
-        extra.textContent = list[hit].title;
-        sel.appendChild(extra);
-        log('?art= matched no gallery title, added as an option:', want);
+      pick.className = 'kw-picks';
+      for (var t = 0; t < titles.length; t++) {
+        var a = list[indexOf(titles[t])];
+        var row = document.createElement('div');
+        row.className = 'kw-pick';
+        if (a.thumb) {
+          var im = document.createElement('img');
+          im.src = a.thumb;
+          im.alt = a.title;
+          row.appendChild(im);
+        }
+        var d = document.createElement('div');
+        var bb = document.createElement('b');
+        bb.textContent = a.title;
+        d.appendChild(bb);
+        if (a.sub) {
+          var sb = document.createElement('span');
+          sb.className = 'kw-sub';
+          sb.textContent = a.sub;
+          d.appendChild(sb);
+        }
+        row.appendChild(d);
+        pick.appendChild(row);
       }
-      sel.value = String(hit);
-      paint();
     }
-    log('form enhanced,', list.length, 'artworks');
+
+    /* dropdowns → CHOSEN */
+    function fromSlots() {
+      var c = chosen(), seen = {};
+      c.length = 0;
+      for (var s = 0; s < slots.length; s++) {
+        if (slots[s].value === '') continue;
+        var t = list[Number(slots[s].value)].title, k = norm(t);
+        if (seen[k]) { slots[s].value = ''; continue; }   /* same artwork twice: drop the repeat */
+        seen[k] = 1;
+        c.push(t);
+      }
+      sync();
+    }
+
+    /* CHOSEN → dropdowns */
+    function sync() {
+      var c = chosen().slice(0, max);
+      for (var s = 0; s < slots.length; s++) {
+        slots[s].value = s < c.length ? String(indexOf(c[s])) : '';
+      }
+      paint(c);
+    }
+
+    FORMS.push(sync);
+    sync();
+    log('form enhanced,', list.length, 'artworks,', max, 'slot(s)');
+  }
+
+  /* "Choose this artwork" in Squarespace's own gallery lightbox (7.0:
+     .sqs-lightbox-slide > .sqs-lightbox-padder > img + .sqs-lightbox-meta).
+     The lightbox is built when it opens, so this runs from tick() like the
+     rest. A slide whose image has no title or description gets NO
+     .sqs-lightbox-meta from Squarespace — then we add our own, lined up
+     under the image on each pass (Squarespace positions the image inline
+     and re-lays it out on resize). The title is the meta's h1, else the
+     image's alt, which Squarespace fills from the gallery title. */
+  function lightboxButtons() {
+    if (!onGiftPage()) return;
+    var slides = document.querySelectorAll('.sqs-lightbox-slide');
+    for (var i = 0; i < slides.length; i++) {
+      var slide = slides[i];
+      var pad = slide.querySelector('.sqs-lightbox-padder');
+      var img = pad && pad.querySelector('img');
+      if (!img) continue;
+      var meta = pad.querySelector('.sqs-lightbox-meta');
+      var h = meta && meta.querySelector('h1');
+      var title = strip(((h && h.textContent) || img.getAttribute('alt') || '').replace(/\s+/g, ' ').trim());
+      if (!title) continue;
+
+      if (!meta) {
+        meta = document.createElement('div');
+        meta.className = 'sqs-lightbox-meta kw-meta';
+        pad.appendChild(meta);
+      }
+      if (meta.classList.contains('kw-meta') && img.offsetWidth) {
+        meta.style.left = img.offsetLeft + 'px';
+        meta.style.right = Math.max(0, pad.clientWidth - img.offsetLeft - img.offsetWidth) + 'px';
+      }
+
+      var btn = meta.querySelector('.kw-choose');
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'kw-choose';
+        btn.setAttribute('data-kw-title', title);
+        /* The lightbox listens for clicks to advance/close; keep ours to ourselves. */
+        ['mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(function (ev) {
+          btn.addEventListener(ev, function (e) { e.stopPropagation(); });
+        });
+        btn.addEventListener('click', onChoose);
+        meta.appendChild(btn);
+      }
+      var on = isChosen(title);
+      var want = on ? CHOSEN_TEXT : CHOOSE_TEXT;
+      if (btn.textContent !== want) btn.textContent = want;
+      btn.classList.toggle('kw-is-chosen', on);
+    }
+  }
+
+  function onChoose(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var btn = e.currentTarget;
+    var title = btn.getAttribute('data-kw-title');
+    if (!choose(title)) {
+      btn.textContent = 'You can choose up to ' + maxArt();
+      setTimeout(lightboxButtons, 1600);
+      return;
+    }
+    lightboxButtons();
+    if (!OPEN_FORM) return;
+    /* Close the gallery lightbox, then open the enquiry form. Multi-pick
+       pages stay in the lightbox until the list is full, so the visitor can
+       keep choosing. */
+    if (maxArt() > 1 && chosen().length < maxArt()) return;
+    var x = document.querySelector('.sqs-lightbox-close, .yui3-lightbox2 .sqs-lightbox-close');
+    if (x) x.click();
+    else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+    setTimeout(function () {
+      var f = document.querySelector('.Main-content button.lightbox-handle, .Main-content .sqs-block-form button');
+      if (f) f.click();
+      else {
+        var form = document.querySelector('.Main-content form');
+        if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 350);
+  }
+
+  /* Optional (hoverSwap: true): hovering a gallery image shows it in the
+     page's main image block — a thumbnail switcher. The block keeps its own
+     aspect box (padding-bottom on .sqs-image-content), so that is reset from
+     the hovered image's data-image-dimensions, or a panorama would be cropped
+     into a portrait box. data-src/data-image are set too: Squarespace's
+     ImageLoader re-reads them on resize and would put the old image back.
+     The last hovered image stays; there is no revert on mouse-out. */
+  var HERO = null;
+  function heroImage() {
+    if (HERO && document.contains(HERO.img)) return HERO;
+    var img = document.querySelector('.Main-content .sqs-block-image .sqs-image-content img, .Main-content .sqs-block-image img');
+    if (!img) return null;
+    HERO = { img: img, box: img.closest('.sqs-image-content') };
+    return HERO;
+  }
+
+  function onHover(e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var slide = t.closest('.sqs-block-gallery .slide, .sqs-block-gallery [data-title]');
+    if (!slide) return;
+    var im = slide.matches('img') ? slide : slide.querySelector('img');
+    var src = im && (im.getAttribute('data-image') || im.getAttribute('data-src') || '');
+    if (!src) return;
+    var hero = heroImage();
+    if (!hero) return;
+    src = src.split('?')[0];
+    if (hero.img.getAttribute('data-kw-swap') === src) return;
+    hero.img.setAttribute('data-kw-swap', src);
+    hero.img.setAttribute('data-src', src);
+    hero.img.setAttribute('data-image', src);
+    hero.img.removeAttribute('srcset');
+    hero.img.src = src + '?format=1500w';
+    hero.img.alt = im.getAttribute('alt') || slide.getAttribute('data-title') || '';
+    var dim = (im.getAttribute('data-image-dimensions') || '').split('x');
+    if (hero.box && dim.length === 2 && +dim[0] > 0) {
+      hero.box.style.paddingBottom = (+dim[1] / +dim[0] * 100) + '%';
+    }
+  }
+
+  var hoverBound = false;
+  function bindHover() {
+    if (!HOVER_SWAP || hoverBound || !onGiftPage()) return;
+    hoverBound = true;
+    document.addEventListener('mouseover', onHover);
+    log('hover swap on');
   }
 
   function tick() {
     linkPass();
     var list = artworks();
     banner(list);
+    if (!onGiftPage()) return;
+    lightboxButtons();
+    bindHover();
     if (!list.length) return;
     var forms = document.querySelectorAll('form');
     for (var i = 0; i < forms.length; i++) enhance(forms[i], list);
@@ -403,6 +659,8 @@
       var ok = titles.filter(function (t) { return norm(t) === norm(want); });
       console.log('matches a gallery title:', ok.length ? 'yes — ' + ok[0] : 'NO (passed through as typed)');
     }
+    console.log('gift page:', onGiftPage() ? pageId(GIFT_PAGES) + ' (max ' + maxArt() + ')' : onIndexPage() ? 'index' : 'no');
+    console.log('chosen:', JSON.stringify(chosen()));
     console.log('this page resolves its title as:', JSON.stringify(pageTitle()));
     console.log('labels:', [].map.call(d.querySelectorAll('form label'),
       function (l) { return JSON.stringify(l.textContent.trim()); }).join(', '));

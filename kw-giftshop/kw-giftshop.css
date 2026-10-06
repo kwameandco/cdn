@@ -299,6 +299,61 @@
   opacity: .75;
 }
 
+/*! Enquiry form — several artworks */
+/* Pages allowed more than one artwork (maxArtworks in the footer config) get one dropdown
+   per slot and one preview row per choice. */
+.kw-art + .kw-art {
+  margin-top: .5em;
+}
+
+.kw-picks {
+  display: grid;
+  gap: .5em;
+  margin-top: .7em;
+}
+
+.kw-picks .kw-pick {
+  margin-top: 0;
+}
+
+/*! Lightbox — choose this artwork */
+/* Added by the script inside Squarespace's own gallery lightbox caption (.sqs-lightbox-meta).
+   A slide with no title or description has no caption bar, so the script adds one
+   (.kw-meta) and lines it up under the image itself. */
+.sqs-lightbox-meta.kw-meta {
+  position: absolute;
+  bottom: -1px;
+  padding: 1em;
+  text-align: center;
+  background: rgba(0, 0, 0, .55);
+}
+
+.kw-choose {
+  display: inline-block;
+  margin-top: .6em;
+  padding: .7em 1.4em;
+  border: 0;
+  border-radius: 2px;
+  background: var(--accent, #e08a3c);
+  color: #000;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.kw-choose:hover,
+.kw-choose:focus-visible {
+  filter: brightness(1.1);
+}
+
+.kw-choose.kw-is-chosen {
+  background: transparent;
+  color: var(--accent, #e08a3c);
+  box-shadow: inset 0 0 0 1px var(--accent, #e08a3c);
+}
+
 /*! Carried artwork banner */
 .kw-carry {
   display: flex;
