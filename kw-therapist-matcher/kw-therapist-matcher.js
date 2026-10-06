@@ -128,17 +128,23 @@
     return Array.from(doc.querySelectorAll('[data-kwtm-therapist]')).map((el) => {
       const name = text(el, 'name');
       const accepts = {};
-      QUESTIONS.forEach(({ key }) => {
-        const box = el.querySelector(`[data-kwtm-accepts="${key}"]`);
-        accepts[key] = box
-          ? Array.from(box.querySelectorAll('[data-kwtm-code]'))
-              // Switch-backed answers render as elements with conditional visibility. Webflow
-              // keeps a switched-off one in the page with .w-condition-invisible — counting it
-              // would make every therapist accept every answer.
-              .filter((c) => !c.closest('.w-condition-invisible'))
-              .map((c) => (c.getAttribute('data-kwtm-code') || c.textContent).trim().toUpperCase())
-              .filter(Boolean)
-          : [];
+      // Switch-backed answers render as elements with conditional visibility. Published
+      // Webflow drops a switched-off one; the Designer preview keeps it with
+      // .w-condition-invisible — skip those so neither view over-counts.
+      const codesIn = (box) => Array.from(box.querySelectorAll('[data-kwtm-code]'))
+        .filter((c) => !c.closest('.w-condition-invisible'))
+        .map((c) => (c.getAttribute('data-kwtm-code') || c.textContent).trim().toUpperCase())
+        .filter(Boolean);
+      QUESTIONS.forEach(({ key, opts }) => {
+        const takes = el.querySelector(`[data-kwtm-accepts="${key}"]`);
+        // "Doesn't offer" lists: Bloom's plan renders at most 5 items in a nested list, and
+        // most therapists take 7-8 answers, so the CMS stores the short list of exclusions.
+        const excludes = el.querySelector(`[data-kwtm-excludes="${key}"]`);
+        if (takes) accepts[key] = codesIn(takes);
+        else if (excludes) {
+          const out = codesIn(excludes);
+          accepts[key] = Object.keys(opts).filter((c) => !out.includes(c));
+        } else accepts[key] = [];
       });
       const img = el.querySelector('img[data-kwtm="photo"]');
       return {
