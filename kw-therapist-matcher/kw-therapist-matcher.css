@@ -1,0 +1,61 @@
+/*! kw-therapist-matcher v1.0.0 */
+/* Visuals as inherited (v1 is like-for-like). Brand colours are custom properties so a
+   later version — or another site — can retheme without touching selectors. */
+:root {
+  --kwtm-ink: #406670;
+  --kwtm-tint: #e5f4eb;
+  --kwtm-tint-hover: #d4eadd;
+  --kwtm-surface: #fdfdfd;
+  --kwtm-z: 10000;
+}
+
+/*! Launcher + window */
+.kwtm-launcher { position: fixed; bottom: 20px; right: 20px; width: 60px; height: 60px; background: var(--kwtm-ink); border: 0; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 30px; box-shadow: 0 4px 15px rgba(0,0,0,.2); z-index: var(--kwtm-z); transition: transform .3s ease; }
+.kwtm-launcher:hover { transform: scale(1.1); }
+.kwtm-window { position: fixed; bottom: 90px; right: 20px; width: 350px; height: 580px; background: var(--kwtm-surface); border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,.2); display: flex; flex-direction: column; overflow: hidden; z-index: var(--kwtm-z); font-family: sans-serif; color: var(--kwtm-ink); border: 1px solid #eee; }
+.kwtm-window[hidden] { display: none; }
+@media (max-width: 420px) {
+  .kwtm-window { width: calc(100vw - 24px); height: calc(100vh - 100px); right: 12px; bottom: 84px; }
+}
+
+/*! Header */
+.kwtm-header { background: var(--kwtm-ink); color: #fff; padding: 12px 15px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; letter-spacing: .5px; }
+.kwtm-brand { display: flex; align-items: center; }
+.kwtm-avatar { width: 32px; height: 32px; border-radius: 50%; margin-right: 10px; object-fit: cover; border: 1.5px solid rgba(255,255,255,.8); background: #eee; }
+.kwtm-close { background: none; border: 0; color: inherit; cursor: pointer; font-size: 20px; opacity: .8; }
+.kwtm-close:hover { opacity: 1; }
+
+/*! Body */
+.kwtm-content { padding: 20px; flex-grow: 1; overflow-y: auto; scroll-behavior: smooth; }
+.kwtm-bubble { background: var(--kwtm-tint); padding: 12px 16px; border-radius: 20px; border-bottom-left-radius: 4px; margin-bottom: 15px; display: inline-block; max-width: 90%; font-size: 14px; color: var(--kwtm-ink); line-height: 1.4; }
+
+.kwtm-typing { display: flex; gap: 4px; padding: 10px; margin-bottom: 10px; }
+.kwtm-typing span { width: 8px; height: 8px; background: var(--kwtm-ink); border-radius: 50%; animation: kwtm-bounce 1.4s infinite ease-in-out; }
+.kwtm-typing span:nth-child(2) { animation-delay: .2s; }
+.kwtm-typing span:nth-child(3) { animation-delay: .4s; }
+@keyframes kwtm-bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+
+/*! Inputs */
+.kwtm-input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 20px; box-sizing: border-box; font-size: 14px; outline: none; }
+.kwtm-start { width: 100%; padding: 12px; background: var(--kwtm-ink); color: #fff; border: 0; border-radius: 20px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+.kwtm-option { display: block; width: 100%; text-align: left; background: var(--kwtm-tint); border: 1px solid var(--kwtm-ink); padding: 12px; margin-bottom: 10px; border-radius: 20px; cursor: pointer; transition: background .2s; font-size: 14px; color: var(--kwtm-ink); font-weight: 500; }
+.kwtm-option:hover { background: var(--kwtm-tint-hover); }
+
+/*! Footer */
+.kwtm-footer { padding: 10px; border-top: 1px solid #eee; background: #fff; text-align: left; }
+.kwtm-footer[hidden] { display: none; }
+.kwtm-back { padding: 8px 20px; cursor: pointer; background: #fff; border: 1px solid var(--kwtm-ink); border-radius: 20px; font-size: 13px; color: var(--kwtm-ink); font-weight: bold; }
+
+/*! Match cards — .kwtm-book also restyles the moved SimplePractice anchor */
+.kwtm-card { background: #fff; padding: 20px; border-radius: 20px; border: 1px solid var(--kwtm-tint); margin-top: 15px; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,.05); }
+.kwtm-photo { width: 85px; height: 85px; border-radius: 50%; object-fit: cover; border: 3px solid var(--kwtm-tint); margin-bottom: 10px; }
+.kwtm-name { font-weight: bold; font-size: 16px; }
+.kwtm-title { font-size: 13px; font-style: italic; margin-bottom: 3px; opacity: .9; }
+.kwtm-pronouns { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 10px; color: #666; }
+.kwtm-quote { font-size: 13px; font-style: italic; color: #333; margin: 10px 0; line-height: 1.4; }
+.kwtm-window .kwtm-book { display: block; background: var(--kwtm-ink); color: #fff; text-decoration: none; text-align: center; padding: 10px; border: 0; border-radius: 20px; margin-top: 8px; font-size: 13px; font-weight: bold; cursor: pointer; }
+.kwtm-window .kwtm-book--secondary { background: var(--kwtm-tint); color: var(--kwtm-ink); margin-top: 10px; }
+.kwtm-phone { font-size: 12px; color: #888; margin-top: 10px; text-align: center; }
+
+/*! Hidden roster — published for the script, never shown */
+[data-kwtm-roster], [data-kwtm-options] { display: none !important; }
