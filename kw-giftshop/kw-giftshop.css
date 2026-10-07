@@ -47,26 +47,16 @@
   font-size: 2rem;
 }
 
-/* Sticky, vertically centred image column. 768px is the template's own desktop edge; the /a-b-f
+/* Vertically centred image column. 768px is the template's own desktop edge; the /a-b-f
    grid in the Custom CSS box breaks at 800px instead, and the two disagree on
    purpose — this one interacts with Squarespace's own columns, so it follows
    the template. */
 @media (min-width: 768px) {
-  #collection-6ab17aabd75f9017140d0910 .sqs-row {
-    position: relative;
-  }
-
-  #collection-6ab17aabd75f9017140d0910 .sqs-col-6 .sqs-block-image {
-    position: sticky;
-    top: 2rem;
-  }
-
   /* Equal-height columns, image centred against the text. 7.0 lays a row
      out with floats, so each column is only as tall as its own blocks and a
      panorama sits at the top of a tall text column. Flex on the row stretches
      both columns to the taller one; flex on the image column centres the
-     block inside it. Sticky still works: a sticky flex item sticks within
-     its (now full-height) column.
+     block inside it.
 
      Scoped with :has() to the row that directly holds a col-6 with an image
      block — the outer row's child is a col-12, and the thumbnail gallery row
@@ -93,12 +83,9 @@
   }
 }
 
-#collection-6ab17aabd75f9017140d0910 button.lightbox-handle {
-  width: 100%;
-}
 
 #collection-6ab17aabd75f9017140d0910 p em {
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-style: unset;
   text-wrap: balance;
   text-wrap: pretty;
@@ -110,7 +97,7 @@
 #collection-6ab17aabd75f9017140d0910 h1 + p > em:only-child,
 #collection-6ab17aabd75f9017140d0910 .sqs-block:has(h1:last-child) + .sqs-block p:first-child > em:only-child {
   color: var(--dim, #9a9a9a);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   letter-spacing: 0.02em;
 }
 
@@ -402,6 +389,17 @@
   color: #dcdcdc;
 }
 
+/* Signed-in only: why the banner said "not available" (kw-giftshop isAdmin()). */
+.kw-admin-note {
+  display: block;
+  margin-top: .4rem;
+  padding: .35rem .5rem;
+  border: 1px dashed var(--accent, #e08a3c);
+  font-size: 12px;
+  color: var(--accent, #e08a3c);
+}
+
+
 .kw-carry a {
   border: 1px solid var(--line, #242424);
   color: var(--dim, #9a9a9a);
@@ -418,9 +416,17 @@
   color: white;
 }
 
-/* Top-align the main image when a swap is on (live copy: gift-shop.css, per collection). */
-@media (min-width: 768px) {
-  .kw-swap .sqs-row:has(> .sqs-col-6 .sqs-block-image) > .sqs-col-6:has(.sqs-block-image) {
-    justify-content: flex-start;
-  }
+/* Hero slideshow (live copy: gift-shop.css, inside the product-page ids). Sticky and the
+   main-image swaps were removed 2026-10-07. */
+.sqs-gallery-design-stacked-slide {
+  background: #000;
+}
+.sqs-gallery-design-stacked-slide img {
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: contain !important;
+  object-position: center !important;
 }

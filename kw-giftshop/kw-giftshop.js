@@ -1,10 +1,10 @@
-/*! kw-giftshop v1.4.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
+/*! kw-giftshop v1.7.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
 (function () {
   "use strict";
 
   if (window.kwGiftshop) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.4.0";
+  var VERSION = "1.7.0";
 
   /* Config is read from the page, so the wording and the field labels stay
      editable in the Code Injection box without republishing to the CDN:
@@ -20,11 +20,32 @@
   var CARRY_TEXT  = CFG.carryText  || 'We have kept this one with you — it will be filled in on the enquiry form.';
   var DEBUG = CFG.debug === true;
   var GIFT_PATH = CFG.giftPath || '/gift-shop';
-  /* Shown on a gift page when the carried artwork is not in this format's
-     gallery (K, 2026-10-06). See availability() for when that is decided. */
-  var UNAVAILABLE_TEXT = CFG.unavailableText || "The artwork you've selected isn't available in this format.";
-  var OTHER_FORMATS_TEXT = CFG.otherFormatsText || 'See other formats';
+  /* Words, as the client uses them (K, 2026-10-07):
+       media   — the gift product type: Prints on Metal, Acrylic Blocks, Art Cards…
+       format  — the shape: square, standard, panoramic…
+       artwork — one individual piece.
+     Visitor-facing text follows that. */
+  var UNAVAILABLE_TEXT = CFG.unavailableText || 'This artwork is not available in this media.';
+  var OTHER_MEDIA_TEXT = CFG.otherMediaText || CFG.otherFormatsText || 'See other media';
   var CHECK_AVAILABILITY = CFG.checkAvailability !== false;
+  /* false (default since 2026-10-07, pre-launch): an artwork missing from a
+     gallery reads as "not available" even while other images there are still
+     untitled, and a logged-in viewer is told why (ADMIN_TEXT). Set true after
+     launch if titling is ever incomplete on a live page. */
+  var REQUIRE_ALL_TITLED = CFG.requireAllTitled === true;
+  var ADMIN_TEXT = CFG.adminText || 'This image is not available or does not have a title in the gallery. Please add one so the plugin can match to it.';
+  /* Pages that only say whether the carried artwork is in them: no form,
+     no lightbox button. Matched against the page's own gallery titles. */
+  var FEATURE_PAGES = CFG.featurePages || {
+    '6ac3d002fec1ae3e7da220e7': { yes: 'This artwork is featured in Elemental.',
+                                  no:  'This artwork is not featured in Elemental.' },
+    '6ac3c86a84dc597b3cb527d5': { yes: 'This artwork is featured in Aspen Grove - Colors of Time.',
+                                  no:  'This artwork is not featured in Aspen Grove - Colors of Time.' }
+  };
+  /* Gift pages that keep the lightbox button and the form, but show no carry
+     banner and do not pre-fill from a carried artwork (Greeting Cards — K,
+     "leave blank", 2026-10-07). */
+  var QUIET_PAGES = CFG.quietPages || ['6ac3c22296f0bf2d7998d606'];
 
   /* WHERE each feature runs, by Squarespace 7.0 collection id (each gift page
      is its own collection; body carries "collection-<id>"). Ids change if a
@@ -40,16 +61,11 @@
      maxArtworks — how many artworks one enquiry may carry, per page id.
        Default 1. Art Cards may become 3 ("3 for $50"): set
        maxArtworks: { '6ac3d16be1ae290e6efbf27b': 3 } in the footer config.
-     Three ways to change the page's MAIN image block (the one image block on
-     the page), all off by default and combinable — built ahead of a client
-     request so each is a config change, not a build:
-       hoverSwap    — hovering a gallery image shows it (thumbnail switcher);
-       lightboxSwap — the image showing in the gallery lightbox is mirrored
-                      into it (on open and as the visitor steps through);
-       carrySwap    — the carried / chosen artwork is shown in it.
-     With any of them on, the main image is TOP-aligned instead of centred
-     (body.kw-swap — see the CSS): a centred image jumps every time a swap
-     changes its height.
+     heroSlideshowPages — pages whose main image is a SLIDESHOW gallery block
+       (Prints on Metal, Acrylic Blocks — K, 2026-10-07). Its images are
+       product shots, not artworks, so they are left out of the artwork list.
+       (The v1.3 hoverSwap / lightboxSwap / carrySwap main-image swaps were
+       removed in v1.6.0 at K's request; those keys are now ignored.)
      openFormOnChoose — after "Choose this artwork", close the lightbox and
        open the enquiry form. Default true.
      clickImageToChoose — clicking the photograph in the lightbox does the
@@ -58,12 +74,25 @@
   var GIFT_PAGES = CFG.giftPages || ['6ac3adbacbdca4526632eca7', '6ab17aabd75f9017140d0910', '6ac3d16be1ae290e6efbf27b', '6ac3c22296f0bf2d7998d606'];
   var INDEX_PAGES = CFG.indexPages || ['6ab1613d15aeae1a003fa8ba'];
   var MAX_ART = CFG.maxArtworks || {};
-  var HOVER_SWAP = CFG.hoverSwap === true;
-  var LIGHTBOX_SWAP = CFG.lightboxSwap === true;
-  var CARRY_SWAP = CFG.carrySwap === true;
+  var HERO_PAGES = CFG.heroSlideshowPages || ['6ac3adbacbdca4526632eca7', '6ab17aabd75f9017140d0910'];
   var OPEN_FORM = CFG.openFormOnChoose !== false;
   var CLICK_IMAGE = CFG.clickImageToChoose !== false;
   var CHOOSE_TIP = typeof CFG.chooseTip === 'string' ? CFG.chooseTip : 'or click the photograph itself';
+  /* Second line of the empty Artwork preview (K, 2026-10-07). "" hides it. */
+  var EMPTY_HINT = typeof CFG.emptyHint === 'string' ? CFG.emptyHint
+    : 'You can preview photographs and select from the thumbnail gallery at the bottom of the page.';
+  /* Size by format (K, 2026-10-07 — Acrylic Blocks). An artwork's FORMAT is the
+     first of these words found in its gallery description (else its title); the
+     Size dropdown's options carry the same word in their labels. Choosing an
+     artwork leaves only its format's sizes: several (Standard) → the dropdown
+     shows just those; exactly one (Panoramic, Square) → it is selected and the
+     dropdown is replaced by a line saying so. No format found → every size,
+     unchanged. Longest word first, so a "Vertical Panoramic" added later wins
+     over "Panoramic". */
+  var FORMATS = (CFG.formats || ['Standard', 'Panoramic', 'Square']).slice()
+    .sort(function (x, y) { return y.length - x.length; });
+  var FORMAT_PAGES = CFG.formatPages || ['6ab17aabd75f9017140d0910'];
+  var SIZE_LABELS = CFG.sizeLabels || ['size'];
   var CHOOSE_TEXT = CFG.chooseText || 'Choose this artwork';
   var CHOSEN_TEXT = CFG.chosenText || 'Chosen \u2713';
 
@@ -75,6 +104,24 @@
   }
   function onGiftPage() { return !!pageId(GIFT_PAGES); }
   function onIndexPage() { return !!pageId(INDEX_PAGES); }
+  function onQuietPage() { return !!pageId(QUIET_PAGES); }
+  function featureMsgs() {
+    var id = pageId(Object.keys(FEATURE_PAGES));
+    return id ? FEATURE_PAGES[id] : null;
+  }
+
+  /* "Only in the dashboard": Code Injection does not run in the editor, so
+     the closest thing is the live/preview page viewed while logged in.
+     Squarespace puts the signed-in account on Static.SQUARESPACE_CONTEXT;
+     a visitor has none. adminHints: true forces it (testing, or if that
+     property ever moves). Not verified on this site — kwReport() prints it. */
+  function isAdmin() {
+    if (CFG.adminHints === true) return true;
+    try {
+      var c = window.Static && window.Static.SQUARESPACE_CONTEXT;
+      return !!(c && c.authenticatedAccount);
+    } catch (e) { return false; }
+  }
   function maxArt() {
     var id = pageId(GIFT_PAGES);
     var n = id ? parseInt(MAX_ART[id], 10) : 1;
@@ -290,7 +337,7 @@
 
   function chosen() {
     if (CHOSEN === null) {
-      var a = strip(param('art'));
+      var a = onQuietPage() ? '' : strip(param('art'));
       CHOSEN = a ? [a] : [];
     }
     return CHOSEN;
@@ -320,7 +367,6 @@
 
     for (var i = 0; i < FORMS.length; i++) FORMS[i]();
     refreshBanner(list);
-    if (CARRY_SWAP && first) swapHero(first.full, first.dims, first.title);
     log('chosen:', c.join(' | '));
     return true;
   }
@@ -328,42 +374,51 @@
   /* Markup matches .carry in mockups/gift-shop-flow.html — the treatment the
      client has already seen. The thumbnail only appears where a gallery on
      this page holds the artwork, so the gift-shop index gets the text form
-     and a product page gets the picture. Gift pages and the index only:
-     Elemental, Colors of Time and Greeting Cards have nothing to carry. */
+     and a product page gets the picture. Gift pages and the index get the
+     carry; Elemental and Colors of Time get featured / not featured
+     (FEATURE_PAGES); Greeting Cards gets nothing (QUIET_PAGES). */
   function refreshBanner(list) {
     var old = document.querySelector('.kw-carry');
     if (old) old.parentNode.removeChild(old);
     banner(list);
   }
 
-  /* Is the carried artwork offered in this format?
-       'yes'     — this page's gallery holds it
-       'no'      — the gallery is FULLY titled and does not hold it
-       'unknown' — no gallery yet, or at least one image has no title
-     'unknown' behaves exactly as before: the title is carried into the form
-     as typed. The client titles images by hand and slowly, so a partly
-     titled gallery is the normal state — and there "not found" cannot be
-     told apart from "not titled yet". Saying "not available" then would turn
-     visitors away from artwork that IS offered. So 'no' needs every image
-     titled, and the check switches itself on as each gallery is finished.
-     Matching is norm() — "&" vs "and" is a different title, so titles must
-     be spelled the same on the artwork page and in every gallery. */
+  /* Is the carried artwork in this page's gallery?
+       'yes'     — the gallery holds it
+       'no'      — the gallery exists and does not (see REQUIRE_ALL_TITLED)
+       'unknown' — no gallery found, or the check is off
+     'unknown' behaves as before: the title is carried into the form as
+     typed. Matching is norm() — "&" vs "and" is a different title, so titles
+     must be spelled the same on the artwork page and in every gallery. */
   var UNAVAILABLE = '';   /* the carried title, once it has been ruled out */
   function availability(list, title) {
     if (findArt(list, title)) return 'yes';
-    if (!CHECK_AVAILABILITY || !GALLERY.total || GALLERY.untitled) return 'unknown';
+    if (!CHECK_AVAILABILITY || !GALLERY.total) return 'unknown';
+    if (REQUIRE_ALL_TITLED && GALLERY.untitled) return 'unknown';
     return 'no';
   }
 
-  /* Run on every tick for the ARRIVAL carry only (?art= in the URL, nothing
-     chosen on this page yet). Galleries render after the form can, so this
-     may flip to 'no' after the form was already filled — hence it clears
-     the choice and repaints the forms rather than only gating enhance(). */
+  function carryTarget() {
+    return (onGiftPage() && !onQuietPage()) || !!featureMsgs();
+  }
+
+  /* Run on every tick for the ARRIVAL carry only (?art= in the URL). The
+     gallery can render after the form, and in pieces, so a 'no' is undone
+     if the artwork turns up later — unless the visitor has chosen since. */
   function checkCarried(list) {
-    if (UNAVAILABLE || !onGiftPage()) return;
+    if (!carryTarget()) return;
     var a = strip(param('art')), c = chosen();
-    if (!a || c.length !== 1 || norm(c[0]) !== norm(a)) return;
+    if (!a) return;
     var hit = findArt(list, a);
+    if (UNAVAILABLE) {
+      if (!hit || c.length) return;
+      UNAVAILABLE = '';
+      c.push(hit.title);
+      for (var k = 0; k < FORMS.length; k++) FORMS[k]();
+      refreshBanner(list);
+      return;
+    }
+    if (c.length !== 1 || norm(c[0]) !== norm(a)) return;
     if (hit) {
       /* Matched: use the gallery's own spelling, so the enquiry email reads
          "Radiance", not whatever casing or punctuation the link carried. */
@@ -382,54 +437,86 @@
     log('carried artwork is not in this gallery:', a);
   }
 
-  function unavailableBanner(host, slot) {
-    var d = document.createElement('div');
-    d.className = 'kw-carry kw-unavailable';
+  function bannerHost() {
+    /* A Code Block holding <div id="kw-carry-slot"></div> wins (K, 2026-10-06
+       — on the Gifts index it sits between the intro text and the product
+       grid). Without one, the top of the page content. */
+    var slot = document.getElementById('kw-carry-slot');
+    return { slot: slot, host: slot || document.querySelector('.Main .Main-content .sqs-layout') };
+  }
+
+  /* A message banner: the artwork, a line of text, optionally a link to the
+     other media (carry kept) and, for a logged-in viewer, why it said "no". */
+  function notice(title, text, thumb, opts) {
+    var h = bannerHost();
+    if (!h.host) return;
     var carried = cleanImg(param('img'));
-    if (carried) {
+    var d = document.createElement('div');
+    d.className = 'kw-carry ' + (opts.cls || '');
+    thumb = thumb || (carried ? carried + '?format=300w' : '');
+    if (thumb) {
       var im = document.createElement('img');
-      im.src = carried + '?format=300w';
+      im.src = thumb;
       im.alt = '';
       d.appendChild(im);
     }
     var t = document.createElement('div');
-    var b = document.createElement('b');
-    b.textContent = UNAVAILABLE;
-    t.appendChild(b);
-    var msg = document.createElement('span');
-    msg.className = 'kw-carry-msg';
-    msg.textContent = UNAVAILABLE_TEXT;
-    t.appendChild(msg);
+    if (title) {
+      var b = document.createElement('b');
+      b.textContent = title;
+      t.appendChild(b);
+    }
+    if (text) {
+      var msg = document.createElement('span');
+      msg.className = 'kw-carry-msg';
+      msg.textContent = text;
+      t.appendChild(msg);
+    }
+    if (opts.admin) {
+      var an = document.createElement('span');
+      an.className = 'kw-admin-note';
+      an.textContent = ADMIN_TEXT + (GALLERY.total
+        ? ' (' + GALLERY.untitled + ' of ' + GALLERY.total + ' images here have no title.)'
+        : ' (No gallery found on this page.)');
+      t.appendChild(an);
+    }
     d.appendChild(t);
-    /* A real link, forwarding the carry, so the Gifts index keeps showing
-       the artwork and every format reached from it gets it too. */
-    var go = document.createElement('a');
-    go.className = 'kw-other-formats';
-    go.href = GIFT_PATH + '?art=' + encodeURIComponent(UNAVAILABLE) +
-              (carried ? '&img=' + encodeURIComponent(carried) : '');
-    go.textContent = OTHER_FORMATS_TEXT;
-    d.appendChild(go);
-    if (slot) slot.appendChild(d);
-    else host.insertBefore(d, host.firstChild);
+    if (opts.link) {
+      /* A real link, forwarding the carry, so the Gifts index keeps showing
+         the artwork and every media reached from it gets it too. */
+      var go = document.createElement('a');
+      go.className = 'kw-other-media';
+      go.href = GIFT_PATH + '?art=' + encodeURIComponent(title) +
+                (carried ? '&img=' + encodeURIComponent(carried) : '');
+      go.textContent = OTHER_MEDIA_TEXT;
+      d.appendChild(go);
+    }
+    if (h.slot) h.slot.appendChild(d);
+    else h.host.insertBefore(d, h.host.firstChild);
   }
 
   function banner(list) {
-    if (!onGiftPage() && !onIndexPage()) return;
+    if (onQuietPage()) return;
+    var fm = featureMsgs();
+    if (!onGiftPage() && !onIndexPage() && !fm) return;
     if (document.querySelector('.kw-carry')) return;
     var c = chosen();
     if (!c.length && UNAVAILABLE) {
-      var s0 = document.getElementById('kw-carry-slot');
-      var h0 = s0 || document.querySelector('.Main .Main-content .sqs-layout');
-      if (h0) unavailableBanner(h0, s0);
+      notice(UNAVAILABLE, fm ? fm.no : UNAVAILABLE_TEXT, '',
+             { cls: 'kw-unavailable', link: true, admin: isAdmin() });
+      return;
+    }
+    if (fm) {
+      /* Feature pages say yes or no; nothing else. 'unknown' (no gallery
+         found) says nothing to visitors and explains itself to an admin. */
+      if (!c.length) return;
+      var f = findArt(list, c[0]);
+      if (f) notice(f.title, fm.yes, f.thumb, { cls: 'kw-featured' });
+      else if (isAdmin()) notice(c[0], '', '', { cls: 'kw-unavailable', admin: true });
       return;
     }
     if (!c.length) return;
-    /* Where it goes: a Code Block holding <div id="kw-carry-slot"></div> wins
-       (K, 2026-10-06 — on the Gifts index it sits between the intro text and
-       the product grid; Emily can move the block in the editor). Without
-       one, the top of the page content, as before. */
-    var slot = document.getElementById('kw-carry-slot');
-    var host = slot || document.querySelector('.Main .Main-content .sqs-layout');
+    var hs = bannerHost(), slot = hs.slot, host = hs.host;
     if (!host) return;
 
     /* Thumbnail: this page's gallery first, else the image carried in &img=
@@ -499,6 +586,29 @@
     return { title: isFilename(t) ? '' : t, desc: md ? md.innerHTML : '' };
   }
 
+  /* The hero slideshow on Prints on Metal / Acrylic Blocks: 7.0's Slideshow
+     gallery design renders as .sqs-gallery-design-stacked (slides
+     .sqs-gallery-design-stacked-slide — K's DevTools, 2026-10-07). Not to be
+     confused with the Stacked *block* design (.image-wrapper), which the
+     artwork galleries elsewhere use. */
+  function isHeroSlide(im) {
+    return !!pageId(HERO_PAGES) &&
+           !!im.closest('.sqs-gallery-design-stacked, .sqs-gallery-design-stacked-slide');
+  }
+
+  function imgKey(im) {
+    return (im.getAttribute('data-image') || im.getAttribute('data-src') || im.getAttribute('src') || '').split('?')[0];
+  }
+  /* The lightbox shows its own copy of the image, so a hero slide is
+     recognised there by its CDN url. */
+  function heroSrcs() {
+    var out = {};
+    if (!pageId(HERO_PAGES)) return out;
+    var ims = document.querySelectorAll('.sqs-gallery-design-stacked img, .sqs-gallery-design-stacked-slide img');
+    for (var i = 0; i < ims.length; i++) { var k = imgKey(ims[i]); if (k) out[k] = 1; }
+    return out;
+  }
+
   var GALLERY = { total: 0, untitled: 0 };
   function artworks() {
     var out = [], seen = {}, total = 0, untitled = 0;
@@ -506,6 +616,7 @@
     for (var i = 0; i < imgs.length; i++) {
       var im = imgs[i];
       if (im.closest('noscript, .sqs-lightbox-slide')) continue;
+      if (isHeroSlide(im)) continue;
       var meta = itemMeta(im);
       var t = meta.title;
       total++;
@@ -527,6 +638,30 @@
     out.sort(function (x, y) { return x.title.localeCompare(y.title); });
     GALLERY = { total: total, untitled: untitled };
     return out;
+  }
+
+  function selectFor(scope, names) {
+    var labels = scope.querySelectorAll('label');
+    for (var i = 0; i < labels.length; i++) {
+      var txt = (labels[i].textContent || '').replace(/[*\u00a0]/g, '').trim().toLowerCase();
+      if (names.indexOf(txt) === -1) continue;
+      var el = labels[i].control;
+      if (!el && labels[i].htmlFor) el = document.getElementById(labels[i].htmlFor);
+      if (!el) {
+        var wrap = labels[i].closest('.form-item, .field');
+        if (wrap) el = wrap.querySelector('select');
+      }
+      if (el && el.tagName === 'SELECT') return el;
+    }
+    return null;
+  }
+
+  function formatIn(text) {
+    for (var i = 0; i < FORMATS.length; i++) {
+      var w = FORMATS[i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp('(^|[^a-z])' + w + '([^a-z]|$)', 'i').test(text || '')) return FORMATS[i];
+    }
+    return '';
   }
 
   function inputFor(scope, names) {
@@ -607,12 +742,59 @@
     input.setAttribute('tabindex', '-1');
     input.setAttribute('data-kw-ready', '1');
 
+    /* Size by format — see FORMATS. Only on FORMAT_PAGES, only with a Size
+       dropdown. Options are hidden, never removed (the form is React-managed). */
+    var size = pageId(FORMAT_PAGES) ? selectFor(scope, SIZE_LABELS) : null;
+    var sizeItem = size && (size.closest('.form-item, .field') || size);
+    var sizeNote = null;
+    function showSizes(titles) {
+      if (!size) return;
+      var want = {}, n = 0;
+      for (var t = 0; t < titles.length; t++) {
+        var a = list[indexOf(titles[t])];
+        var f = formatIn(a.sub) || formatIn(a.title);
+        if (!f) { n = 0; break; }        /* one artwork with no format: show everything */
+        if (!want[f]) { want[f] = 1; n++; }
+      }
+      var kept = [];
+      for (var o = 0; o < size.options.length; o++) {
+        var opt = size.options[o], of = formatIn(opt.textContent);
+        var keep = !n || !of || !!want[of];   /* placeholder / unlabelled options stay */
+        opt.hidden = !keep;
+        opt.disabled = !keep && opt.value !== '';
+        if (keep && of) kept.push(opt);
+      }
+      if (n && kept.length === 1) {
+        if (size.value !== kept[0].value) setField(size, kept[0].value);
+        sizeItem.style.display = 'none';
+        if (!sizeNote) {
+          sizeNote = document.createElement('div');
+          sizeNote.className = 'kw-size-auto';
+          sizeItem.parentNode.insertBefore(sizeNote, sizeItem.nextSibling);
+        }
+        sizeNote.textContent = 'Size: ' + kept[0].textContent.trim();
+        sizeNote.style.display = '';
+        return;
+      }
+      sizeItem.style.display = '';
+      if (sizeNote) sizeNote.style.display = 'none';
+      var cur = size.options[size.selectedIndex];
+      if (cur && cur.hidden) setField(size, '');
+    }
+
     function paint(titles) {
       setField(input, titles.join('; '));
+      showSizes(titles);
       pick.innerHTML = '';
       if (!titles.length) {
         pick.className = 'kw-pick kw-empty';
         pick.textContent = max > 1 ? 'the artworks you choose appear here' : 'the artwork you choose appears here';
+        if (EMPTY_HINT) {
+          var hint = document.createElement('span');
+          hint.className = 'kw-empty-hint';
+          hint.textContent = EMPTY_HINT;
+          pick.appendChild(hint);
+        }
         return;
       }
       pick.className = 'kw-picks';
@@ -691,6 +873,7 @@
       var h = meta && meta.querySelector('h1');
       var title = strip(((h && h.textContent) || img.getAttribute('alt') || '').replace(/\s+/g, ' ').trim());
       if (!title || isFilename(title)) continue;   /* untitled slide: no button */
+      if (heroSrcs()[imgKey(img)]) continue;        /* a hero-slideshow product shot */
 
       if (!meta) {
         meta = document.createElement('div');
@@ -723,10 +906,6 @@
         if (CLICK_IMAGE) img.classList.add('kw-clickable');
       }
       if (!img.getAttribute('data-kw-title')) img.setAttribute('data-kw-title', title);
-      if (LIGHTBOX_SWAP && slide.classList.contains('sqs-active-slide')) {
-        swapHero(cleanImg(img.getAttribute('data-image') || img.getAttribute('data-src') || img.getAttribute('src')),
-                 img.getAttribute('data-image-dimensions') || '', title);
-      }
       var on = isChosen(title);
       var want = on ? CHOSEN_TEXT : CHOOSE_TEXT;
       if (btn.textContent !== want) btn.textContent = want;
@@ -779,73 +958,14 @@
     }, 350);
   }
 
-  /* Optional (hoverSwap: true): hovering a gallery image shows it in the
-     page's main image block — a thumbnail switcher. The block keeps its own
-     aspect box (padding-bottom on .sqs-image-content), so that is reset from
-     the hovered image's data-image-dimensions, or a panorama would be cropped
-     into a portrait box. data-src/data-image are set too: Squarespace's
-     ImageLoader re-reads them on resize and would put the old image back.
-     The last hovered image stays; there is no revert on mouse-out. */
-  var HERO = null;
-  function heroImage() {
-    if (HERO && document.contains(HERO.img)) return HERO;
-    var img = document.querySelector('.Main-content .sqs-block-image .sqs-image-content img, .Main-content .sqs-block-image img');
-    if (!img) return null;
-    HERO = { img: img, box: img.closest('.sqs-image-content') };
-    return HERO;
-  }
-
-  function swapHero(src, dims, alt) {
-    src = cleanImg(src);
-    if (!src) return;
-    var hero = heroImage();
-    if (!hero || hero.img.getAttribute('data-kw-swap') === src) return;
-    hero.img.setAttribute('data-kw-swap', src);
-    hero.img.setAttribute('data-src', src);
-    hero.img.setAttribute('data-image', src);
-    hero.img.removeAttribute('srcset');
-    hero.img.src = src + '?format=1500w';
-    hero.img.alt = alt || '';
-    var dim = (dims || '').split('x');
-    if (hero.box && dim.length === 2 && +dim[0] > 0) {
-      hero.box.style.paddingBottom = (+dim[1] / +dim[0] * 100) + '%';
-    }
-    log('main image ->', alt || src);
-  }
-
-  function onHover(e) {
-    var t = e.target;
-    if (!t || !t.closest) return;
-    var slide = t.closest('.sqs-block-gallery .slide, .sqs-block-gallery .image-wrapper, .sqs-block-gallery [data-title]');
-    if (!slide) return;
-    var im = slide.matches('img') ? slide : slide.querySelector('img[data-image], img[data-src]');
-    if (!im) return;
-    swapHero(im.getAttribute('data-image') || im.getAttribute('data-src') || '',
-             im.getAttribute('data-image-dimensions') || '',
-             itemMeta(im).title);
-  }
-
-  /* Once per page: listeners, the body class the CSS keys on, and the
-     carried artwork into the main image if carrySwap is on. */
-  var bound = false, carriedShown = false;
+  /* Once per page: the lightbox photo-click listeners. */
+  var bound = false;
   function bindPage() {
-    if (!onGiftPage()) return;
-    if (!bound) {
-      bound = true;
-      if (HOVER_SWAP) document.addEventListener('mouseover', onHover);
-      document.addEventListener('click', onImageClick, true);
-      document.addEventListener('mousedown', onImageClick, true);
-      document.addEventListener('mouseup', onImageClick, true);
-      if (HOVER_SWAP || LIGHTBOX_SWAP || CARRY_SWAP) document.body.classList.add('kw-swap');
-    }
-    if (CARRY_SWAP && !carriedShown && chosen().length && !UNAVAILABLE) {
-      var hit = findArt(artworks(), chosen()[0]);
-      var src = hit ? hit.full : cleanImg(param('img'));
-      if (src && heroImage()) {
-        carriedShown = true;
-        swapHero(src, hit ? hit.dims : '', chosen()[0]);
-      }
-    }
+    if (!onGiftPage() || bound) return;
+    bound = true;
+    document.addEventListener('click', onImageClick, true);
+    document.addEventListener('mousedown', onImageClick, true);
+    document.addEventListener('mouseup', onImageClick, true);
   }
 
   function tick() {
@@ -903,8 +1023,10 @@
     console.log('gift page:', onGiftPage() ? pageId(GIFT_PAGES) + ' (max ' + maxArt() + ')' : onIndexPage() ? 'index' : 'no');
     console.log('chosen:', JSON.stringify(chosen()));
     console.log('gallery images:', GALLERY.total, '— untitled:', GALLERY.untitled,
-      GALLERY.untitled ? '(availability check OFF until every image is titled)' : '(availability check on)');
-    if (param('art')) console.log('carried artwork in this format:', UNAVAILABLE ? 'no' : availability(artworks(), param('art')));
+      REQUIRE_ALL_TITLED && GALLERY.untitled ? '(availability check OFF until every image is titled)' : '(availability check on)');
+    if (param('art')) console.log('carried artwork on this page:', UNAVAILABLE ? 'no' : availability(artworks(), param('art')));
+    console.log('page role:', onQuietPage() ? 'quiet (no carry)' : featureMsgs() ? 'feature (featured / not featured)' : onGiftPage() ? 'gift' : onIndexPage() ? 'index' : 'none',
+      '— admin hints:', isAdmin() ? 'ON (signed in)' : 'off');
     console.log('this page resolves its title as:', JSON.stringify(pageTitle()));
     console.log('labels:', [].map.call(d.querySelectorAll('form label'),
       function (l) { return JSON.stringify(l.textContent.trim()); }).join(', '));
