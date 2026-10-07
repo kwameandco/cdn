@@ -1,10 +1,10 @@
-/*! kw-giftshop v1.3.1 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
+/*! kw-giftshop v1.4.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
 (function () {
   "use strict";
 
   if (window.kwGiftshop) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.3.1";
+  var VERSION = "1.4.0";
 
   /* Config is read from the page, so the wording and the field labels stay
      editable in the Code Injection box without republishing to the CDN:
@@ -20,6 +20,11 @@
   var CARRY_TEXT  = CFG.carryText  || 'We have kept this one with you — it will be filled in on the enquiry form.';
   var DEBUG = CFG.debug === true;
   var GIFT_PATH = CFG.giftPath || '/gift-shop';
+  /* Shown on a gift page when the carried artwork is not in this format's
+     gallery (K, 2026-10-06). See availability() for when that is decided. */
+  var UNAVAILABLE_TEXT = CFG.unavailableText || "The artwork you've selected isn't available in this format.";
+  var OTHER_FORMATS_TEXT = CFG.otherFormatsText || 'See other formats';
+  var CHECK_AVAILABILITY = CFG.checkAvailability !== false;
 
   /* WHERE each feature runs, by Squarespace 7.0 collection id (each gift page
      is its own collection; body carries "collection-<id>"). Ids change if a
@@ -314,9 +319,7 @@
     setUrlParams({ art: c[0], img: first ? first.full : '' });
 
     for (var i = 0; i < FORMS.length; i++) FORMS[i]();
-    var old = document.querySelector('.kw-carry');
-    if (old) old.parentNode.removeChild(old);
-    banner(list);
+    refreshBanner(list);
     if (CARRY_SWAP && first) swapHero(first.full, first.dims, first.title);
     log('chosen:', c.join(' | '));
     return true;
@@ -327,10 +330,100 @@
      this page holds the artwork, so the gift-shop index gets the text form
      and a product page gets the picture. Gift pages and the index only:
      Elemental, Colors of Time and Greeting Cards have nothing to carry. */
+  function refreshBanner(list) {
+    var old = document.querySelector('.kw-carry');
+    if (old) old.parentNode.removeChild(old);
+    banner(list);
+  }
+
+  /* Is the carried artwork offered in this format?
+       'yes'     — this page's gallery holds it
+       'no'      — the gallery is FULLY titled and does not hold it
+       'unknown' — no gallery yet, or at least one image has no title
+     'unknown' behaves exactly as before: the title is carried into the form
+     as typed. The client titles images by hand and slowly, so a partly
+     titled gallery is the normal state — and there "not found" cannot be
+     told apart from "not titled yet". Saying "not available" then would turn
+     visitors away from artwork that IS offered. So 'no' needs every image
+     titled, and the check switches itself on as each gallery is finished.
+     Matching is norm() — "&" vs "and" is a different title, so titles must
+     be spelled the same on the artwork page and in every gallery. */
+  var UNAVAILABLE = '';   /* the carried title, once it has been ruled out */
+  function availability(list, title) {
+    if (findArt(list, title)) return 'yes';
+    if (!CHECK_AVAILABILITY || !GALLERY.total || GALLERY.untitled) return 'unknown';
+    return 'no';
+  }
+
+  /* Run on every tick for the ARRIVAL carry only (?art= in the URL, nothing
+     chosen on this page yet). Galleries render after the form can, so this
+     may flip to 'no' after the form was already filled — hence it clears
+     the choice and repaints the forms rather than only gating enhance(). */
+  function checkCarried(list) {
+    if (UNAVAILABLE || !onGiftPage()) return;
+    var a = strip(param('art')), c = chosen();
+    if (!a || c.length !== 1 || norm(c[0]) !== norm(a)) return;
+    var hit = findArt(list, a);
+    if (hit) {
+      /* Matched: use the gallery's own spelling, so the enquiry email reads
+         "Radiance", not whatever casing or punctuation the link carried. */
+      if (c[0] !== hit.title) {
+        c[0] = hit.title;
+        for (var j = 0; j < FORMS.length; j++) FORMS[j]();
+        refreshBanner(list);
+      }
+      return;
+    }
+    if (availability(list, a) !== 'no') return;
+    UNAVAILABLE = a;
+    c.length = 0;
+    for (var i = 0; i < FORMS.length; i++) FORMS[i]();
+    refreshBanner(list);
+    log('carried artwork is not in this gallery:', a);
+  }
+
+  function unavailableBanner(host, slot) {
+    var d = document.createElement('div');
+    d.className = 'kw-carry kw-unavailable';
+    var carried = cleanImg(param('img'));
+    if (carried) {
+      var im = document.createElement('img');
+      im.src = carried + '?format=300w';
+      im.alt = '';
+      d.appendChild(im);
+    }
+    var t = document.createElement('div');
+    var b = document.createElement('b');
+    b.textContent = UNAVAILABLE;
+    t.appendChild(b);
+    var msg = document.createElement('span');
+    msg.className = 'kw-carry-msg';
+    msg.textContent = UNAVAILABLE_TEXT;
+    t.appendChild(msg);
+    d.appendChild(t);
+    /* A real link, forwarding the carry, so the Gifts index keeps showing
+       the artwork and every format reached from it gets it too. */
+    var go = document.createElement('a');
+    go.className = 'kw-other-formats';
+    go.href = GIFT_PATH + '?art=' + encodeURIComponent(UNAVAILABLE) +
+              (carried ? '&img=' + encodeURIComponent(carried) : '');
+    go.textContent = OTHER_FORMATS_TEXT;
+    d.appendChild(go);
+    if (slot) slot.appendChild(d);
+    else host.insertBefore(d, host.firstChild);
+  }
+
   function banner(list) {
     if (!onGiftPage() && !onIndexPage()) return;
+    if (document.querySelector('.kw-carry')) return;
     var c = chosen();
-    if (!c.length || document.querySelector('.kw-carry')) return;
+    if (!c.length && UNAVAILABLE) {
+      var s0 = document.getElementById('kw-carry-slot');
+      var h0 = s0 || document.querySelector('.Main .Main-content .sqs-layout');
+      if (h0) unavailableBanner(h0, s0);
+      return;
+    }
+    if (!c.length) return;
     /* Where it goes: a Code Block holding <div id="kw-carry-slot"></div> wins
        (K, 2026-10-06 — on the Gifts index it sits between the intro text and
        the product grid; Emily can move the block in the editor). Without
@@ -395,23 +488,28 @@
     if (a && a.getAttribute('data-title').trim()) {
       return { title: a.getAttribute('data-title').trim(), desc: a.getAttribute('data-description') || '' };
     }
-    var w = im.closest('.image-wrapper, .slide, .margin-wrapper') || im.parentNode;
-    var m = w.querySelector('.meta');
+    var w = im.closest('.image-wrapper') || im.closest('.slide') || im.parentNode;
+    var m = w.querySelector('.meta, .slide-meta');
     if (!m) { var n = w.nextElementSibling; if (n && n.classList.contains('meta')) m = n; }
-    var mt = m && m.querySelector('.meta-title');
-    var md = m && m.querySelector('.meta-description');
+    /* .slide-meta p.title / p.description: the autocolumns gallery design,
+       which the gift pages use. */
+    var mt = m && m.querySelector('.meta-title, .title');
+    var md = m && m.querySelector('.meta-description, .description');
     var t = (mt && mt.textContent.trim()) || (im.getAttribute('alt') || '').trim();
     return { title: isFilename(t) ? '' : t, desc: md ? md.innerHTML : '' };
   }
 
+  var GALLERY = { total: 0, untitled: 0 };
   function artworks() {
-    var out = [], seen = {};
+    var out = [], seen = {}, total = 0, untitled = 0;
     var imgs = document.querySelectorAll('.sqs-block-gallery img[data-image], .sqs-block-gallery img[data-src], .sqs-gallery img[data-image], .sqs-gallery img[data-src]');
     for (var i = 0; i < imgs.length; i++) {
       var im = imgs[i];
       if (im.closest('noscript, .sqs-lightbox-slide')) continue;
       var meta = itemMeta(im);
       var t = meta.title;
+      total++;
+      if (!t) untitled++;
       var key = t.toLowerCase();
       if (!t || seen[key]) continue;
       seen[key] = 1;
@@ -427,6 +525,7 @@
                  dims: im.getAttribute('data-image-dimensions') || '' });
     }
     out.sort(function (x, y) { return x.title.localeCompare(y.title); });
+    GALLERY = { total: total, untitled: untitled };
     return out;
   }
 
@@ -554,6 +653,8 @@
         c.push(t);
       }
       sync();
+      if (c.length) UNAVAILABLE = '';
+      refreshBanner(list);
     }
 
     /* CHOSEN → dropdowns */
@@ -589,7 +690,7 @@
       var meta = pad.querySelector('.sqs-lightbox-meta');
       var h = meta && meta.querySelector('h1');
       var title = strip(((h && h.textContent) || img.getAttribute('alt') || '').replace(/\s+/g, ' ').trim());
-      if (!title) continue;
+      if (!title || isFilename(title)) continue;   /* untitled slide: no button */
 
       if (!meta) {
         meta = document.createElement('div');
@@ -737,7 +838,7 @@
       document.addEventListener('mouseup', onImageClick, true);
       if (HOVER_SWAP || LIGHTBOX_SWAP || CARRY_SWAP) document.body.classList.add('kw-swap');
     }
-    if (CARRY_SWAP && !carriedShown && chosen().length) {
+    if (CARRY_SWAP && !carriedShown && chosen().length && !UNAVAILABLE) {
       var hit = findArt(artworks(), chosen()[0]);
       var src = hit ? hit.full : cleanImg(param('img'));
       if (src && heroImage()) {
@@ -750,6 +851,7 @@
   function tick() {
     linkPass();
     var list = artworks();
+    checkCarried(list);
     banner(list);
     if (!onGiftPage()) return;
     bindPage();
@@ -800,6 +902,9 @@
     }
     console.log('gift page:', onGiftPage() ? pageId(GIFT_PAGES) + ' (max ' + maxArt() + ')' : onIndexPage() ? 'index' : 'no');
     console.log('chosen:', JSON.stringify(chosen()));
+    console.log('gallery images:', GALLERY.total, '— untitled:', GALLERY.untitled,
+      GALLERY.untitled ? '(availability check OFF until every image is titled)' : '(availability check on)');
+    if (param('art')) console.log('carried artwork in this format:', UNAVAILABLE ? 'no' : availability(artworks(), param('art')));
     console.log('this page resolves its title as:', JSON.stringify(pageTitle()));
     console.log('labels:', [].map.call(d.querySelectorAll('form label'),
       function (l) { return JSON.stringify(l.textContent.trim()); }).join(', '));
