@@ -1,10 +1,10 @@
-/*! kw-giftshop v1.7.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
+/*! kw-giftshop v1.9.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
 (function () {
   "use strict";
 
   if (window.kwGiftshop) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.7.0";
+  var VERSION = "1.9.0";
 
   /* Config is read from the page, so the wording and the field labels stay
      editable in the Code Injection box without republishing to the CDN:
@@ -73,7 +73,10 @@
      chooseTip — the small line under the button. "" hides it. */
   var GIFT_PAGES = CFG.giftPages || ['6ac3adbacbdca4526632eca7', '6ab17aabd75f9017140d0910', '6ac3d16be1ae290e6efbf27b', '6ac3c22296f0bf2d7998d606'];
   var INDEX_PAGES = CFG.indexPages || ['6ab1613d15aeae1a003fa8ba'];
-  var MAX_ART = CFG.maxArtworks || {};
+  /* Fine Art Cards: up to 3 (K, 2026-10-07). A "Number of Cards" dropdown in the
+     form, when there is one, overrides this — see maxArt(). */
+  var MAX_ART = CFG.maxArtworks || { '6ac3d16be1ae290e6efbf27b': 3 };
+  var COUNT_LABELS = CFG.countLabels || ['number of cards'];
   var HERO_PAGES = CFG.heroSlideshowPages || ['6ac3adbacbdca4526632eca7', '6ab17aabd75f9017140d0910'];
   var OPEN_FORM = CFG.openFormOnChoose !== false;
   var CLICK_IMAGE = CFG.clickImageToChoose !== false;
@@ -91,7 +94,7 @@
      over "Panoramic". */
   var FORMATS = (CFG.formats || ['Standard', 'Panoramic', 'Square']).slice()
     .sort(function (x, y) { return y.length - x.length; });
-  var FORMAT_PAGES = CFG.formatPages || ['6ab17aabd75f9017140d0910'];
+  var FORMAT_PAGES = CFG.formatPages || GIFT_PAGES;
   var SIZE_LABELS = CFG.sizeLabels || ['size'];
   var CHOOSE_TEXT = CFG.chooseText || 'Choose this artwork';
   var CHOSEN_TEXT = CFG.chosenText || 'Chosen \u2713';
@@ -122,7 +125,18 @@
       return !!(c && c.authenticatedAccount);
     } catch (e) { return false; }
   }
+  /* How many artworks one enquiry may carry. The form's "Number of Cards"
+     dropdown wins once it exists ("1 Fine Art Card" → 1, "3 Fine Art Cards" →
+     3); before the form has been opened, the page's maxArtworks. */
+  function countSelect() {
+    return onGiftPage() ? selectFor(document, COUNT_LABELS) : null;
+  }
   function maxArt() {
+    var cs = countSelect();
+    if (cs) {
+      var m = parseInt(cs.value, 10);
+      if (m > 0) return m;
+    }
     var id = pageId(GIFT_PAGES);
     var n = id ? parseInt(MAX_ART[id], 10) : 1;
     return n > 1 ? n : 1;
@@ -640,10 +654,24 @@
     return out;
   }
 
+  /* A label's own text. Squarespace's current form markup puts the required
+     marker INSIDE the label — <span class="description required">(required)</span>
+     — so textContent read "Artwork(required)" and matched nothing: the Artwork
+     field was never found and the carry never reached the form (K's DOM sample,
+     2026-10-07). The marker elements are dropped, and a literal "(required)" /
+     "(optional)" or "*" too, for the older markup. */
+  function labelText(label) {
+    var c = label.cloneNode(true);
+    var junk = c.querySelectorAll('.description, .required, .optional');
+    for (var j = 0; j < junk.length; j++) junk[j].parentNode.removeChild(junk[j]);
+    return (c.textContent || '').replace(/\((required|optional)\)/gi, '')
+      .replace(/[*\u00a0]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
   function selectFor(scope, names) {
     var labels = scope.querySelectorAll('label');
     for (var i = 0; i < labels.length; i++) {
-      var txt = (labels[i].textContent || '').replace(/[*\u00a0]/g, '').trim().toLowerCase();
+      var txt = labelText(labels[i]);
       if (names.indexOf(txt) === -1) continue;
       var el = labels[i].control;
       if (!el && labels[i].htmlFor) el = document.getElementById(labels[i].htmlFor);
@@ -664,10 +692,29 @@
     return '';
   }
 
+  /* One Size dropdown per format, labelled "<Format> Sizes" (or "Size"):
+     "Standard Sizes", "Panoramic Sizes", "Square Size" (K, 2026-10-07). */
+  function formatFields(scope) {
+    var out = [], labels = scope.querySelectorAll('label');
+    for (var i = 0; i < labels.length; i++) {
+      var txt = labelText(labels[i]);
+      if (!/(^| )sizes?$/.test(txt)) continue;
+      var f = formatIn(txt);
+      if (!f) continue;
+      var el = labels[i].control || (labels[i].htmlFor && document.getElementById(labels[i].htmlFor));
+      if (!el || el.tagName !== 'SELECT') {
+        var w = labels[i].closest('.form-item, .field');
+        el = w && w.querySelector('select');
+      }
+      if (el) out.push({ fmt: f, sel: el, item: el.closest('.form-item, .field') || el, note: null });
+    }
+    return out;
+  }
+
   function inputFor(scope, names) {
     var labels = scope.querySelectorAll('label');
     for (var i = 0; i < labels.length; i++) {
-      var txt = (labels[i].textContent || '').replace(/[*\u00a0]/g, '').trim().toLowerCase();
+      var txt = labelText(labels[i]);
       if (names.indexOf(txt) === -1) continue;
       var el = labels[i].control;
       if (!el && labels[i].htmlFor) el = document.getElementById(labels[i].htmlFor);
@@ -697,10 +744,62 @@
       lock.setAttribute('data-kw-ready', '1');
     }
 
-    var input = inputFor(scope, ART_LABELS);
-    if (!input || input.getAttribute('data-kw-ready')) return;
+    /* With a "Number of Cards" dropdown, each Artwork field — "Artwork",
+       "Artwork 2", "Artwork 3" (Squarespace follow-up fields, rendered when
+       3 cards is picked) — gets its own picker, bound to that place in the
+       chosen list. Without one, the single Artwork field carries every slot
+       (maxArtworks), joined with "; ". */
+    var count = selectFor(scope, COUNT_LABELS);
+    bindCount(count);
+    var ins = artInputs(scope);
+    for (var k = 0; k < ins.length; k++) {
+      if (!ins[k].input.getAttribute('data-kw-ready')) enhanceArt(scope, ins[k].input, list, count ? ins[k].idx : null);
+    }
+  }
 
-    var max = maxArt();
+  /* Number of Cards ↔ chosen list. Opening the form with more artworks chosen
+     than the dropdown allows (picked in the lightbox) raises it to the smallest
+     option that fits, which makes Squarespace render Artwork 2 / 3. Lowering it
+     drops the extra artworks. */
+  function bindCount(count) {
+    if (!count || count.getAttribute('data-kw-count')) return;
+    count.setAttribute('data-kw-count', '1');
+    var c = chosen();
+    if (c.length > (parseInt(count.value, 10) || 1)) {
+      var best = null;
+      for (var o = 0; o < count.options.length; o++) {
+        var v = parseInt(count.options[o].value, 10);
+        if (v >= c.length && (!best || v < parseInt(best.value, 10))) best = count.options[o];
+      }
+      if (best) setField(count, best.value);
+    }
+    count.addEventListener('change', function () {
+      var m = parseInt(count.value, 10) || 1, cc = chosen();
+      if (cc.length <= m) return;
+      cc.length = m;
+      for (var i = 0; i < FORMS.length; i++) FORMS[i]();
+      refreshBanner(artworks());
+    });
+  }
+
+  function artInputs(scope) {
+    var out = [], labels = scope.querySelectorAll('label');
+    for (var i = 0; i < labels.length; i++) {
+      var m = /^(.*?)(?: (\d+))?$/.exec(labelText(labels[i]));
+      if (ART_LABELS.indexOf(m[1]) === -1) continue;
+      var el = labels[i].control || (labels[i].htmlFor && document.getElementById(labels[i].htmlFor));
+      if (!el) {
+        var w = labels[i].closest('.form-item, .field');
+        el = w && w.querySelector('input[type="text"], input:not([type]), textarea');
+      }
+      if (el && el.tagName !== 'SELECT') out.push({ input: el, idx: m[2] ? parseInt(m[2], 10) - 1 : 0 });
+    }
+    return out;
+  }
+
+  function enhanceArt(scope, input, list, idx) {
+    var max = idx === null ? maxArt() : 1;
+    var doSizes = idx === null || idx === 0;   /* size fields: once per form */
     list = list.slice();
     var slots = [];
 
@@ -728,7 +827,7 @@
     for (var n = 0; n < max; n++) {
       var sel = document.createElement('select');
       sel.className = 'field-element kw-art';   /*! field-element: the template styles it */
-      sel.setAttribute('aria-label', max > 1 ? 'Artwork ' + (n + 1) : 'Artwork');
+      sel.setAttribute('aria-label', idx ? 'Artwork ' + (idx + 1) : max > 1 ? 'Artwork ' + (n + 1) : 'Artwork');
       sel.innerHTML = '<option value="">' + (n === 0 ? 'Choose an artwork…' : 'Add another artwork (optional)…') + '</option>';
       for (var i = 0; i < list.length; i++) addOption(sel, i);
       sel.addEventListener('change', fromSlots);
@@ -744,10 +843,86 @@
 
     /* Size by format — see FORMATS. Only on FORMAT_PAGES, only with a Size
        dropdown. Options are hidden, never removed (the form is React-managed). */
-    var size = pageId(FORMAT_PAGES) ? selectFor(scope, SIZE_LABELS) : null;
+    var fields = doSizes && pageId(FORMAT_PAGES) ? formatFields(scope) : [];
+    var size = doSizes && !fields.length && pageId(FORMAT_PAGES) ? selectFor(scope, SIZE_LABELS) : null;
     var sizeItem = size && (size.closest('.form-item, .field') || size);
     var sizeNote = null;
+
+    function realOptions(sel) {
+      var out = [];
+      for (var o = 0; o < sel.options.length; o++) if (!sel.options[o].disabled) out.push(sel.options[o]);
+      return out;
+    }
+    function placeholderOf(sel) {
+      for (var o = 0; o < sel.options.length; o++) if (sel.options[o].disabled) return sel.options[o].value;
+      return '';
+    }
+    function hasSize(sel) {
+      var cur = sel.options[sel.selectedIndex];
+      return !!cur && !cur.disabled && cur.value !== '';
+    }
+
+    /* Per-format dropdowns: the artwork's format decides which one shows. One
+       size in it → selected for the visitor, dropdown replaced by a "Size: …"
+       line. Several (Standard) → that dropdown alone. No artwork, or one with no
+       format word → every dropdown, as built. A hidden dropdown is reset to its
+       placeholder, so a size picked for a previous artwork is not sent. */
+    function showFields(titles) {
+      var want = {}, n = 0;
+      for (var t = 0; t < titles.length; t++) {
+        var a = list[indexOf(titles[t])];
+        var f = formatIn(a.sub) || formatIn(a.title);
+        if (!f) { n = 0; break; }
+        if (!want[f]) { want[f] = 1; n++; }
+      }
+      for (var i = 0; i < fields.length; i++) {
+        var fd = fields[i], on = !n || !!want[fd.fmt], opts = realOptions(fd.sel);
+        if (on && n && opts.length === 1) {
+          if (fd.sel.value !== opts[0].value) setField(fd.sel, opts[0].value);
+          fd.item.style.display = 'none';
+          if (!fd.note) {
+            fd.note = document.createElement('div');
+            fd.note.className = 'kw-size-auto';
+            fd.item.parentNode.insertBefore(fd.note, fd.item.nextSibling);
+          }
+          fd.note.textContent = 'Size: ' + opts[0].textContent.trim();
+          fd.note.style.display = '';
+          continue;
+        }
+        fd.item.style.display = on ? '' : 'none';
+        if (fd.note) fd.note.style.display = 'none';
+        if (!on && hasSize(fd.sel)) setField(fd.sel, placeholderOf(fd.sel));
+      }
+    }
+
+    /* Make the size dropdowns NOT required in Squarespace — a hidden required
+       field would block every submission. This guard asks for a size instead:
+       at least one showing dropdown must have one. Capture phase, so it runs
+       before Squarespace's own submit handling. */
+    function sizeGuard(e) {
+      if (e.type === 'click' && !(e.target.closest && e.target.closest('button[type="submit"], input[type="submit"]'))) return;
+      var shown = [], ok = false;
+      for (var i = 0; i < fields.length; i++) {
+        var fd = fields[i];
+        if (fd.note && fd.note.style.display !== 'none') ok = true;
+        else if (fd.item.style.display !== 'none') { shown.push(fd.sel); if (hasSize(fd.sel)) ok = true; }
+      }
+      if (ok || !shown.length) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      shown[0].setCustomValidity('Please choose a size.');
+      shown[0].reportValidity();
+    }
+    if (fields.length) {
+      scope.addEventListener('submit', sizeGuard, true);
+      scope.addEventListener('click', sizeGuard, true);
+      for (var g = 0; g < fields.length; g++) {
+        fields[g].sel.addEventListener('change', function () { this.setCustomValidity(''); });
+      }
+    }
+
     function showSizes(titles) {
+      if (fields.length) return showFields(titles);
       if (!size) return;
       var want = {}, n = 0;
       for (var t = 0; t < titles.length; t++) {
@@ -784,12 +959,12 @@
 
     function paint(titles) {
       setField(input, titles.join('; '));
-      showSizes(titles);
+      if (doSizes) showSizes(idx === null ? titles : chosen().slice());
       pick.innerHTML = '';
       if (!titles.length) {
         pick.className = 'kw-pick kw-empty';
         pick.textContent = max > 1 ? 'the artworks you choose appear here' : 'the artwork you choose appears here';
-        if (EMPTY_HINT) {
+        if (EMPTY_HINT && !idx) {
           var hint = document.createElement('span');
           hint.className = 'kw-empty-hint';
           hint.textContent = EMPTY_HINT;
@@ -825,6 +1000,7 @@
 
     /* dropdowns → CHOSEN */
     function fromSlots() {
+      if (idx !== null) return fromSlot();
       var c = chosen(), seen = {};
       c.length = 0;
       for (var s = 0; s < slots.length; s++) {
@@ -839,9 +1015,29 @@
       refreshBanner(list);
     }
 
+    /* One field's picker → its place in CHOSEN (per-field mode). The list
+       stays packed: clearing Artwork 2 moves Artwork 3 up. Every form re-syncs,
+       since the others' places may have moved. An artwork already in another
+       place is refused. */
+    function fromSlot() {
+      var c = chosen(), v = slots[0].value;
+      if (v === '') {
+        if (idx < c.length) c.splice(idx, 1);
+      } else {
+        var t = list[Number(v)].title;
+        for (var j = 0; j < c.length; j++) {
+          if (j !== idx && norm(c[j]) === norm(t)) { sync(); return; }
+        }
+        if (idx < c.length) c[idx] = t; else c.push(t);
+      }
+      for (var i = 0; i < FORMS.length; i++) FORMS[i]();
+      if (c.length) UNAVAILABLE = '';
+      refreshBanner(list);
+    }
+
     /* CHOSEN → dropdowns */
     function sync() {
-      var c = chosen().slice(0, max);
+      var c = idx === null ? chosen().slice(0, max) : (chosen()[idx] ? [chosen()[idx]] : []);
       for (var s = 0; s < slots.length; s++) {
         slots[s].value = s < c.length ? String(indexOf(c[s])) : '';
       }
@@ -850,7 +1046,7 @@
 
     FORMS.push(sync);
     sync();
-    log('form enhanced,', list.length, 'artworks,', max, 'slot(s)');
+    log('form enhanced,', list.length, 'artworks,', idx === null ? max + ' slot(s)' : 'field ' + (idx + 1));
   }
 
   /* "Choose this artwork" in Squarespace's own gallery lightbox (7.0:
