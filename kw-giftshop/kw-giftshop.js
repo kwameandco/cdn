@@ -1,10 +1,10 @@
-/*! kw-giftshop v1.9.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
+/*! kw-giftshop v1.9.1 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
 (function () {
   "use strict";
 
   if (window.kwGiftshop) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.9.0";
+  var VERSION = "1.9.1";
 
   /* Config is read from the page, so the wording and the field labels stay
      editable in the Code Injection box without republishing to the CDN:
@@ -610,19 +610,6 @@
            !!im.closest('.sqs-gallery-design-stacked, .sqs-gallery-design-stacked-slide');
   }
 
-  function imgKey(im) {
-    return (im.getAttribute('data-image') || im.getAttribute('data-src') || im.getAttribute('src') || '').split('?')[0];
-  }
-  /* The lightbox shows its own copy of the image, so a hero slide is
-     recognised there by its CDN url. */
-  function heroSrcs() {
-    var out = {};
-    if (!pageId(HERO_PAGES)) return out;
-    var ims = document.querySelectorAll('.sqs-gallery-design-stacked img, .sqs-gallery-design-stacked-slide img');
-    for (var i = 0; i < ims.length; i++) { var k = imgKey(ims[i]); if (k) out[k] = 1; }
-    return out;
-  }
-
   var GALLERY = { total: 0, untitled: 0 };
   function artworks() {
     var out = [], seen = {}, total = 0, untitled = 0;
@@ -1069,7 +1056,11 @@
       var h = meta && meta.querySelector('h1');
       var title = strip(((h && h.textContent) || img.getAttribute('alt') || '').replace(/\s+/g, ' ').trim());
       if (!title || isFilename(title)) continue;   /* untitled slide: no button */
-      if (heroSrcs()[imgKey(img)]) continue;        /* a hero-slideshow product shot */
+      /* v1.6.0 also skipped any photo that appears in the hero slideshow. The
+         hero slideshows show the same artworks as the gallery, so that removed
+         every button on Prints on Metal and Acrylic Blocks (K, 2026-10-09).
+         The hero's images are still kept out of the artwork list by position
+         (isHeroSlide), which is harmless when they duplicate the gallery. */
 
       if (!meta) {
         meta = document.createElement('div');
