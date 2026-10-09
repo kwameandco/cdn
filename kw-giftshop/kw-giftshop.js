@@ -1,10 +1,10 @@
-/*! kw-giftshop v1.9.1 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
+/*! kw-giftshop v1.9.2 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
 (function () {
   "use strict";
 
   if (window.kwGiftshop) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.9.1";
+  var VERSION = "1.9.2";
 
   /* Config is read from the page, so the wording and the field labels stay
      editable in the Code Injection box without republishing to the CDN:
@@ -96,6 +96,11 @@
     .sort(function (x, y) { return y.length - x.length; });
   var FORMAT_PAGES = CFG.formatPages || GIFT_PAGES;
   var SIZE_LABELS = CFG.sizeLabels || ['size'];
+  /* Under the first artwork picker once something is chosen (K, 2026-10-09):
+     the choice lives in the page, not the form, so closing and reopening the
+     form brings it back. "" hides it. */
+  var KEEP_NOTE = typeof CFG.keepNote === 'string' ? CFG.keepNote
+    : "Closing this form won't remove your selection.";
   var CHOOSE_TEXT = CFG.chooseText || 'Choose this artwork';
   var CHOSEN_TEXT = CFG.chosenText || 'Chosen \u2713';
 
@@ -357,8 +362,15 @@
     return CHOSEN;
   }
 
+  /* The artworks that count right now: the chosen list cut to the current
+     limit. Lowering Number of Cards hides the extra picks rather than deleting
+     them, so switching back to 3 brings them back (K, 2026-10-09). */
+  function active() {
+    return chosen().slice(0, maxArt());
+  }
+
   function isChosen(title) {
-    var k = norm(title), c = chosen();
+    var k = norm(title), c = active();
     for (var i = 0; i < c.length; i++) if (norm(c[i]) === k) return true;
     return false;
   }
@@ -369,9 +381,16 @@
     if (!title) return false;
     var c = chosen(), max = maxArt();
     if (isChosen(title)) return true;
-    if (max === 1) c.length = 0;
-    else if (c.length >= max) return false;
-    c.push(title);
+    COUNT_PICK = null;   /* a new choice in the lightbox: let the form re-fit the count */
+    /* An artwork already held as a hidden extra moves to the front. */
+    for (var d = c.length - 1; d >= 0; d--) if (norm(c[d]) === norm(title)) c.splice(d, 1);
+    if (max === 1) {
+      if (c.length) c[0] = title; else c.push(title);   /* extras beyond the limit are kept */
+    } else if (c.length >= max) {
+      return false;
+    } else {
+      c.push(title);
+    }
 
     /* Keep the URL in step (first choice only — ?art= carries one title) so a
        refresh or a shared link keeps it. replaceState: no new history entry,
@@ -553,7 +572,7 @@
 
     var t = document.createElement('div');
     var b = document.createElement('b');
-    b.textContent = c.join(', ');
+    b.textContent = active().join(', ');
     t.appendChild(b);
     var msg = document.createElement('span');
     msg.className = 'kw-carry-msg';
@@ -748,11 +767,14 @@
      than the dropdown allows (picked in the lightbox) raises it to the smallest
      option that fits, which makes Squarespace render Artwork 2 / 3. Lowering it
      drops the extra artworks. */
+  var COUNT_PICK = null;   /* the visitor's own Number of Cards, kept across reopening the form */
   function bindCount(count) {
     if (!count || count.getAttribute('data-kw-count')) return;
     count.setAttribute('data-kw-count', '1');
     var c = chosen();
-    if (c.length > (parseInt(count.value, 10) || 1)) {
+    if (COUNT_PICK !== null) {
+      if (count.value !== COUNT_PICK) setField(count, COUNT_PICK);
+    } else if (c.length > (parseInt(count.value, 10) || 1)) {
       var best = null;
       for (var o = 0; o < count.options.length; o++) {
         var v = parseInt(count.options[o].value, 10);
@@ -761,9 +783,7 @@
       if (best) setField(count, best.value);
     }
     count.addEventListener('change', function () {
-      var m = parseInt(count.value, 10) || 1, cc = chosen();
-      if (cc.length <= m) return;
-      cc.length = m;
+      COUNT_PICK = count.value;
       for (var i = 0; i < FORMS.length; i++) FORMS[i]();
       refreshBanner(artworks());
     });
@@ -944,9 +964,19 @@
       if (cur && cur.hidden) setField(size, '');
     }
 
+    var keep = null;
     function paint(titles) {
       setField(input, titles.join('; '));
       if (doSizes) showSizes(idx === null ? titles : chosen().slice());
+      if (KEEP_NOTE && !idx) {
+        if (!keep) {
+          keep = document.createElement('div');
+          keep.className = 'kw-keep-note';
+          keep.textContent = KEEP_NOTE;
+          input.parentNode.insertBefore(keep, input);
+        }
+        keep.hidden = !chosen().length;
+      }
       pick.innerHTML = '';
       if (!titles.length) {
         pick.className = 'kw-pick kw-empty';
@@ -1131,7 +1161,7 @@
     /* Close the gallery lightbox, then open the enquiry form. Multi-pick
        pages stay in the lightbox until the list is full, so the visitor can
        keep choosing. */
-    if (maxArt() > 1 && chosen().length < maxArt()) return;
+    if (maxArt() > 1 && active().length < maxArt()) return;
     var x = document.querySelector('.sqs-lightbox-close, .yui3-lightbox2 .sqs-lightbox-close');
     if (x) x.click();
     else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, which: 27, bubbles: true }));
