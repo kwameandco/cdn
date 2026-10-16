@@ -1,10 +1,10 @@
-/*! kw-giftshop v1.9.2 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
+/*! kw-giftshop v1.9.3 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
 (function () {
   "use strict";
 
   if (window.kwGiftshop) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.9.2";
+  var VERSION = "1.9.3";
 
   /* Config is read from the page, so the wording and the field labels stay
      editable in the Code Injection box without republishing to the CDN:
@@ -704,7 +704,10 @@
     var out = [], labels = scope.querySelectorAll('label');
     for (var i = 0; i < labels.length; i++) {
       var txt = labelText(labels[i]);
-      if (!/(^| )sizes?$/.test(txt)) continue;
+      /* "Standard Sizes", "Standard Size" or "Standard Format" (K renamed the
+         Acrylic dropdowns to "… Format" on 2026-10-16, to match the image
+         descriptions; v1.9.2 only knew "Size(s)" and showed every dropdown). */
+      if (!/(^| )(sizes?|formats?)$/.test(txt)) continue;
       var f = formatIn(txt);
       if (!f) continue;
       var el = labels[i].control || (labels[i].htmlFor && document.getElementById(labels[i].htmlFor));
@@ -1247,6 +1250,10 @@
     console.log('this page resolves its title as:', JSON.stringify(pageTitle()));
     console.log('labels:', [].map.call(d.querySelectorAll('form label'),
       function (l) { return JSON.stringify(l.textContent.trim()); }).join(', '));
+    var ff = [].concat.apply([], [].map.call(d.querySelectorAll('form'), formatFields));
+    console.log('format dropdowns:', ff.length ? ff.map(function (f) { return f.fmt + ' (' + f.sel.options.length + ' options)'; }).join(', ') : 'none recognised');
+    var aw = artworks(), noFmt = aw.filter(function (a) { return !(formatIn(a.sub) || formatIn(a.title)); });
+    console.log('artworks with no format word:', noFmt.length ? JSON.stringify(noFmt.map(function (a) { return a.title; })) : 'none');
   };
 
   window.kwGiftshop = { version: VERSION };
