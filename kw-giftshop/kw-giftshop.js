@@ -1,10 +1,10 @@
-/*! kw-giftshop v1.9.3 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
+/*! kw-giftshop v1.10.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
 (function () {
   "use strict";
 
   if (window.kwGiftshop) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.9.3";
+  var VERSION = "1.10.0";
 
   /* Config is read from the page, so the wording and the field labels stay
      editable in the Code Injection box without republishing to the CDN:
@@ -885,8 +885,11 @@
         if (!f) { n = 0; break; }
         if (!want[f]) { want[f] = 1; n++; }
       }
+      /* No artwork yet: no size dropdowns at all (K, 2026-10-19) — the size
+         depends on the artwork, so asking first only invites a wrong pick. */
+      var none = !titles.length;
       for (var i = 0; i < fields.length; i++) {
-        var fd = fields[i], on = !n || !!want[fd.fmt], opts = realOptions(fd.sel);
+        var fd = fields[i], on = !none && (!n || !!want[fd.fmt]), opts = realOptions(fd.sel);
         if (on && n && opts.length === 1) {
           if (fd.sel.value !== opts[0].value) setField(fd.sel, opts[0].value);
           fd.item.style.display = 'none';
@@ -905,35 +908,77 @@
       }
     }
 
-    /* Make the size dropdowns NOT required in Squarespace — a hidden required
-       field would block every submission. This guard asks for a size instead:
-       at least one showing dropdown must have one. Capture phase, so it runs
-       before Squarespace's own submit handling. */
-    function sizeGuard(e) {
-      if (e.type === 'click' && !(e.target.closest && e.target.closest('button[type="submit"], input[type="submit"]'))) return;
-      var shown = [], ok = false;
+    /* Send stays off until the enquiry is complete (K, 2026-10-19): an artwork
+       — as many as Number of Cards asks for — and, where the artwork's format
+       needs one, a size. The size dropdowns must be NOT required in
+       Squarespace (a hidden required field blocks every submission); this is
+       the requirement instead, and it moves with the artwork. The button gets
+       a class, not the disabled attribute (Squarespace's form re-renders it);
+       a capture-phase guard blocks the click and Enter-to-submit. */
+    function missing() {
+      var need = selectFor(scope, COUNT_LABELS) ? maxArt() : 1;
+      if (active().length < need) {
+        var empty = scope.querySelectorAll('select.kw-art'), first = null;
+        for (var e = 0; e < empty.length; e++) if (!empty[e].value) { first = empty[e]; break; }
+        return { el: first || scope.querySelector('select.kw-art'),
+                 msg: need > 1 ? 'Choose ' + need + ' artworks to send your enquiry.' : 'Choose an artwork to send your enquiry.' };
+      }
+      var shown = [];
       for (var i = 0; i < fields.length; i++) {
         var fd = fields[i];
-        if (fd.note && fd.note.style.display !== 'none') ok = true;
-        else if (fd.item.style.display !== 'none') { shown.push(fd.sel); if (hasSize(fd.sel)) ok = true; }
+        if (fd.note && fd.note.style.display !== 'none') return null;   /* size filled in for them */
+        if (fd.item.style.display !== 'none') { if (hasSize(fd.sel)) return null; shown.push(fd.sel); }
       }
-      if (ok || !shown.length) return;
+      if (size && sizeItem.style.display !== 'none' && !size.value) shown.push(size);
+      if (shown.length) return { el: shown[0], msg: 'Choose a size to send your enquiry.' };
+      return null;
+    }
+    var sendBtn = scope.querySelector('button[type="submit"], input[type="submit"]');
+    var sendNote = null;
+    function gate() {
+      if (!sendBtn) return;
+      var m = missing();
+      sendBtn.classList.toggle('kw-send-off', !!m);
+      sendBtn.setAttribute('aria-disabled', m ? 'true' : 'false');
+      if (!sendNote || !sendNote.isConnected) sendNote = sendBtn.parentNode.querySelector('.kw-send-note');
+      if (!sendNote) {
+        sendNote = document.createElement('div');
+        sendNote.className = 'kw-send-note';
+        sendBtn.parentNode.insertBefore(sendNote, sendBtn);
+      }
+      sendNote.textContent = m ? m.msg : '';
+      sendNote.hidden = !m;
+    }
+    function sendGuard(e) {
+      if (e.type === 'click' && !(e.target.closest && e.target.closest('button[type="submit"], input[type="submit"]'))) return;
+      var m = missing();
+      if (!m) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      shown[0].setCustomValidity('Please choose a size.');
-      shown[0].reportValidity();
-    }
-    if (fields.length) {
-      scope.addEventListener('submit', sizeGuard, true);
-      scope.addEventListener('click', sizeGuard, true);
-      for (var g = 0; g < fields.length; g++) {
-        fields[g].sel.addEventListener('change', function () { this.setCustomValidity(''); });
+      if (m.el) {
+        m.el.setCustomValidity(m.msg);
+        m.el.reportValidity();
       }
+    }
+    if (doSizes && !scope.getAttribute('data-kw-gate')) {
+      scope.setAttribute('data-kw-gate', '1');
+      scope.addEventListener('submit', sendGuard, true);
+      scope.addEventListener('click', sendGuard, true);
+      scope.addEventListener('change', function (e) {
+        if (e.target && e.target.setCustomValidity) e.target.setCustomValidity('');
+        setTimeout(gate, 0);
+      });
+      FORMS.push(function () { setTimeout(gate, 0); });
     }
 
     function showSizes(titles) {
       if (fields.length) return showFields(titles);
       if (!size) return;
+      if (!titles.length) {
+        sizeItem.style.display = 'none';
+        if (sizeNote) sizeNote.style.display = 'none';
+        return;
+      }
       var want = {}, n = 0;
       for (var t = 0; t < titles.length; t++) {
         var a = list[indexOf(titles[t])];
@@ -970,7 +1015,7 @@
     var keep = null;
     function paint(titles) {
       setField(input, titles.join('; '));
-      if (doSizes) showSizes(idx === null ? titles : chosen().slice());
+      if (doSizes) { showSizes(idx === null ? titles : active()); gate(); }
       if (KEEP_NOTE && !idx) {
         if (!keep) {
           keep = document.createElement('div');
