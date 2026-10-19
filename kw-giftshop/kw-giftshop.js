@@ -1,10 +1,10 @@
-/*! kw-giftshop v1.10.0 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
+/*! kw-giftshop v1.10.1 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
 (function () {
   "use strict";
 
   if (window.kwGiftshop) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.10.0";
+  var VERSION = "1.10.1";
 
   /* Config is read from the page, so the wording and the field labels stay
      editable in the Code Injection box without republishing to the CDN:
@@ -71,7 +71,10 @@
      clickImageToChoose — clicking the photograph in the lightbox does the
        same as the button (as in the mock-up). Default true.
      chooseTip — the small line under the button. "" hides it. */
-  var GIFT_PAGES = CFG.giftPages || ['6ac3adbacbdca4526632eca7', '6ab17aabd75f9017140d0910', '6ac3d16be1ae290e6efbf27b', '6ac3c22296f0bf2d7998d606'];
+  /* Elemental Book joined 2026-10-19 (it has a gallery now, and an Artwork
+     field shown when "Deluxe Limited Edition" is picked). It stays a feature
+     page too, so the bar still says featured / not featured. */
+  var GIFT_PAGES = CFG.giftPages || ['6ac3adbacbdca4526632eca7', '6ab17aabd75f9017140d0910', '6ac3d16be1ae290e6efbf27b', '6ac3c22296f0bf2d7998d606', '6ac3d002fec1ae3e7da220e7'];
   var INDEX_PAGES = CFG.indexPages || ['6ab1613d15aeae1a003fa8ba'];
   /* Fine Art Cards: up to 3 (K, 2026-10-07). A "Number of Cards" dropdown in the
      form, when there is one, overrides this — see maxArt(). */
@@ -916,6 +919,10 @@
        a class, not the disabled attribute (Squarespace's form re-renders it);
        a capture-phase guard blocks the click and Enter-to-submit. */
     function missing() {
+      /* No artwork picker on screen (Elemental before "Deluxe Limited Edition"
+         is chosen — Squarespace removes a follow-up field it is not showing):
+         nothing to ask for. */
+      if (!scope.querySelector('select.kw-art')) return null;
       var need = selectFor(scope, COUNT_LABELS) ? maxArt() : 1;
       if (active().length < need) {
         var empty = scope.querySelectorAll('select.kw-art'), first = null;
