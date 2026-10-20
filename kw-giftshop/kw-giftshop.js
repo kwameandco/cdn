@@ -1,10 +1,10 @@
-/*! kw-giftshop v1.10.1 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
+/*! kw-giftshop v1.10.2 — artwork carry + enquiry-form dropdown for Squarespace gift shops */
 (function () {
   "use strict";
 
   if (window.kwGiftshop) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.10.1";
+  var VERSION = "1.10.2";
 
   /* Config is read from the page, so the wording and the field labels stay
      editable in the Code Injection box without republishing to the CDN:
@@ -80,6 +80,12 @@
      form, when there is one, overrides this — see maxArt(). */
   var MAX_ART = CFG.maxArtworks || { '6ac3d16be1ae290e6efbf27b': 3 };
   var COUNT_LABELS = CFG.countLabels || ['number of cards'];
+  /* Choosing in the lightbox also picks this option in the form, by page, so the
+     field that holds the artwork is showing when the form opens (K, 2026-10-19:
+     Elemental's Artwork field only appears for "Deluxe Limited Edition"). Matched
+     as text inside any dropdown option of the enquiry form. */
+  var CHOOSE_OPTION = CFG.chooseOption || { '6ac3d002fec1ae3e7da220e7': 'Deluxe Limited Edition' };
+  var WANT_OPTION = '';
   var HERO_PAGES = CFG.heroSlideshowPages || ['6ac3adbacbdca4526632eca7', '6ab17aabd75f9017140d0910'];
   var OPEN_FORM = CFG.openFormOnChoose !== false;
   var CLICK_IMAGE = CFG.clickImageToChoose !== false;
@@ -749,6 +755,7 @@
      Slots and the shared CHOSEN list stay in step both ways: a dropdown change
      rewrites CHOSEN, and a lightbox choice calls sync() to repaint the slots. */
   function enhance(scope, list) {
+    if (WANT_OPTION) pickOption(scope);
     var lock = inputFor(scope, LOCK_LABELS);
     if (lock && !lock.getAttribute('data-kw-ready')) {
       lock.readOnly = true;
@@ -773,6 +780,22 @@
      than the dropdown allows (picked in the lightbox) raises it to the smallest
      option that fits, which makes Squarespace render Artwork 2 / 3. Lowering it
      drops the extra artworks. */
+  /* Apply WANT_OPTION once, to the first dropdown in this form that has it. */
+  function pickOption(scope) {
+    var want = WANT_OPTION.toLowerCase(), sels = scope.querySelectorAll('select');
+    for (var i = 0; i < sels.length; i++) {
+      if (sels[i].classList.contains('kw-art')) continue;
+      for (var o = 0; o < sels[i].options.length; o++) {
+        var op = sels[i].options[o];
+        if (!op.disabled && op.textContent.trim().toLowerCase().indexOf(want) !== -1) {
+          WANT_OPTION = '';
+          if (sels[i].value !== op.value) setField(sels[i], op.value);
+          return;
+        }
+      }
+    }
+  }
+
   var COUNT_PICK = null;   /* the visitor's own Number of Cards, kept across reopening the form */
   function bindCount(count) {
     if (!count || count.getAttribute('data-kw-count')) return;
@@ -1211,6 +1234,7 @@
       setTimeout(lightboxButtons, 1600);
       return;
     }
+    WANT_OPTION = CHOOSE_OPTION[pageId(Object.keys(CHOOSE_OPTION))] || '';
     lightboxButtons();
     if (!OPEN_FORM) return;
     /* Close the gallery lightbox, then open the enquiry form. Multi-pick
