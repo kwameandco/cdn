@@ -1,6 +1,7 @@
-/*! kw-therapist-matcher v1.0.0 */
-/* Visuals as inherited (v1 is like-for-like). Brand colours are custom properties so a
-   later version — or another site — can retheme without touching selectors. */
+/*! kw-therapist-matcher v1.1.0 */
+/* Visuals as inherited, plus v1.1: text launcher, site fonts, full-screen on phones,
+   focus rings, 44px targets, reduced motion. Brand colours are custom properties so
+   another site can retheme without touching selectors. */
 :root {
   --kwtm-ink: #406670;
   --kwtm-tint: #e5f4eb;
@@ -10,19 +11,27 @@
 }
 
 /*! Launcher + window */
-.kwtm-launcher { position: fixed; bottom: 20px; right: 20px; width: 60px; height: 60px; background: var(--kwtm-ink); border: 0; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 30px; box-shadow: 0 4px 15px rgba(0,0,0,.2); z-index: var(--kwtm-z); transition: transform .3s ease; }
-.kwtm-launcher:hover { transform: scale(1.1); }
-.kwtm-window { position: fixed; bottom: 90px; right: 20px; width: 350px; height: 580px; background: var(--kwtm-surface); border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,.2); display: flex; flex-direction: column; overflow: hidden; z-index: var(--kwtm-z); font-family: sans-serif; color: var(--kwtm-ink); border: 1px solid #eee; }
+/* font-family: inherit = the site's body font; buttons and inputs don't inherit by default. */
+.kwtm-launcher { position: fixed; bottom: 20px; right: 20px; min-height: 48px; padding: 0 22px; background: var(--kwtm-ink); border: 0; border-radius: 999px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #fff; font-family: inherit; font-size: 15px; font-weight: 600; box-shadow: 0 4px 15px rgba(0,0,0,.2); z-index: var(--kwtm-z); transition: transform .3s ease; }
+.kwtm-launcher:hover { transform: scale(1.05); }
+.kwtm-window { position: fixed; bottom: 80px; right: 20px; width: 350px; height: 580px; max-height: calc(100vh - 100px); background: var(--kwtm-surface); border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,.2); display: flex; flex-direction: column; overflow: hidden; z-index: var(--kwtm-z); font-family: inherit; color: var(--kwtm-ink); border: 1px solid #eee; }
+.kwtm-window button, .kwtm-window input { font-family: inherit; }
 .kwtm-window[hidden] { display: none; }
-@media (max-width: 420px) {
-  .kwtm-window { width: calc(100vw - 24px); height: calc(100vh - 100px); right: 12px; bottom: 84px; }
+
+/*! Phones — full screen, page scroll locked while open (the JS sets html.kwtm-open) */
+@media (max-width: 600px) {
+  .kwtm-window { top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto; max-height: none; border-radius: 0; border: 0; }
+  .kwtm-header { padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
+  .kwtm-footer { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+  html.kwtm-open, html.kwtm-open body { overflow: hidden; }
+  html.kwtm-open .kwtm-launcher { display: none; }
 }
 
 /*! Header */
 .kwtm-header { background: var(--kwtm-ink); color: #fff; padding: 12px 15px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; letter-spacing: .5px; }
 .kwtm-brand { display: flex; align-items: center; }
 .kwtm-avatar { width: 32px; height: 32px; border-radius: 50%; margin-right: 10px; object-fit: cover; border: 1.5px solid rgba(255,255,255,.8); background: #eee; }
-.kwtm-close { background: none; border: 0; color: inherit; cursor: pointer; font-size: 20px; opacity: .8; }
+.kwtm-close { background: none; border: 0; color: inherit; cursor: pointer; font-size: 24px; line-height: 1; width: 44px; height: 44px; margin: -10px -12px -10px 0; opacity: .8; }
 .kwtm-close:hover { opacity: 1; }
 
 /*! Body */
@@ -37,14 +46,20 @@
 
 /*! Inputs */
 .kwtm-input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 20px; box-sizing: border-box; font-size: 14px; outline: none; }
-.kwtm-start { width: 100%; padding: 12px; background: var(--kwtm-ink); color: #fff; border: 0; border-radius: 20px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+.kwtm-start { width: 100%; min-height: 44px; padding: 12px; background: var(--kwtm-ink); color: #fff; border: 0; border-radius: 20px; cursor: pointer; font-weight: bold; margin-top: 10px; }
 .kwtm-option { display: block; width: 100%; text-align: left; background: var(--kwtm-tint); border: 1px solid var(--kwtm-ink); padding: 12px; margin-bottom: 10px; border-radius: 20px; cursor: pointer; transition: background .2s; font-size: 14px; color: var(--kwtm-ink); font-weight: 500; }
 .kwtm-option:hover { background: var(--kwtm-tint-hover); }
+/* Back keeps the earlier answer. Not colour alone: weight + a tick too. */
+.kwtm-option--selected { background: var(--kwtm-tint-hover); border-width: 2px; font-weight: 700; }
+/* Empty alt text: aria-pressed already says "selected"; the tick is visual only. Browsers
+   without alt-text syntax drop the rule and keep the weight + border. */
+.kwtm-option--selected::after { content: " ✓" / ""; }
 
 /*! Footer */
-.kwtm-footer { padding: 10px; border-top: 1px solid #eee; background: #fff; text-align: left; }
+.kwtm-footer { padding: 10px; border-top: 1px solid #eee; background: #fff; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.kwtm-progress { font-size: 13px; color: var(--kwtm-ink); }
 .kwtm-footer[hidden] { display: none; }
-.kwtm-back { padding: 8px 20px; cursor: pointer; background: #fff; border: 1px solid var(--kwtm-ink); border-radius: 20px; font-size: 13px; color: var(--kwtm-ink); font-weight: bold; }
+.kwtm-back { min-height: 44px; padding: 8px 20px; cursor: pointer; background: #fff; border: 1px solid var(--kwtm-ink); border-radius: 20px; font-size: 13px; color: var(--kwtm-ink); font-weight: bold; }
 
 /*! Match cards — .kwtm-book also restyles the moved SimplePractice anchor */
 .kwtm-card { background: #fff; padding: 20px; border-radius: 20px; border: 1px solid var(--kwtm-tint); margin-top: 15px; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,.05); }
@@ -52,10 +67,29 @@
 .kwtm-name { font-weight: bold; font-size: 16px; }
 .kwtm-title { font-size: 13px; font-style: italic; margin-bottom: 3px; opacity: .9; }
 .kwtm-pronouns { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 10px; color: #666; }
+.kwtm-why { font-size: 12px; font-weight: 600; color: var(--kwtm-ink); margin: 0 0 8px; }
 .kwtm-quote { font-size: 13px; font-style: italic; color: #333; margin: 10px 0; line-height: 1.4; }
 .kwtm-window .kwtm-book { display: block; background: var(--kwtm-ink); color: #fff; text-decoration: none; text-align: center; padding: 10px; border: 0; border-radius: 20px; margin-top: 8px; font-size: 13px; font-weight: bold; cursor: pointer; }
 .kwtm-window .kwtm-book--secondary { background: var(--kwtm-tint); color: var(--kwtm-ink); margin-top: 10px; }
-.kwtm-phone { font-size: 12px; color: #888; margin-top: 10px; text-align: center; }
+.kwtm-phone { font-size: 12px; color: var(--kwtm-ink); margin-top: 10px; text-align: center; }
+
+/*! Results actions + crisis line */
+.kwtm-actions { display: flex; gap: 8px; margin-top: 16px; }
+.kwtm-window .kwtm-action { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 8px 12px; background: #fff; border: 1px solid var(--kwtm-ink); border-radius: 20px; color: var(--kwtm-ink); font-size: 13px; font-weight: bold; text-decoration: none; cursor: pointer; text-align: center; }
+.kwtm-crisis { font-size: 12px; line-height: 1.45; color: #333; background: #fff; border-left: 3px solid var(--kwtm-ink); padding: 8px 10px; margin: 16px 0 0; }
+.kwtm-crisis a { color: var(--kwtm-ink); font-weight: 700; }
+
+/*! Focus + motion */
+.kwtm-launcher:focus-visible, .kwtm-window :focus-visible { outline: 3px solid var(--kwtm-ink); outline-offset: 2px; }
+.kwtm-close:focus-visible { outline-color: #fff; }
+/* Bubbles take programmatic focus (so a screen reader reads the new question); no ring for that. */
+.kwtm-bubble[tabindex="-1"]:focus { outline: none; }
+@media (prefers-reduced-motion: reduce) {
+  .kwtm-launcher, .kwtm-option { transition: none; }
+  .kwtm-launcher:hover { transform: none; }
+  .kwtm-content { scroll-behavior: auto; }
+  .kwtm-typing span { animation: none; }
+}
 
 /*! Hidden roster — published for the script, never shown */
 [data-kwtm-roster], [data-kwtm-options] { display: none !important; }
