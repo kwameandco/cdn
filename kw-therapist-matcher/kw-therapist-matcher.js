@@ -1,6 +1,6 @@
-/*! kw-therapist-matcher v1.1.0 — https://github.com/kwameandco/clients */
+/*! kw-therapist-matcher v1.1.1 — https://github.com/kwameandco/clients */
 /**
- * kw-therapist-matcher v1.1.0
+ * kw-therapist-matcher v1.1.1
  * Chat-style "find your therapist" quiz for a Webflow site whose therapists live in a
  * CMS collection. One script tag + one stylesheet, no dependencies, no API calls, no
  * credentials. See README.md and instructions.md.
@@ -57,7 +57,7 @@
 
   if (win.kwTherapistMatcher) return;
 
-  const VERSION = '1.1.0';
+  const VERSION = '1.1.1';
 
   const _cs = doc.currentScript || doc.querySelector('script[src*="kw-therapist-matcher"]');
   const attr = (n, fallback) => _cs?.getAttribute(n) ?? fallback;
