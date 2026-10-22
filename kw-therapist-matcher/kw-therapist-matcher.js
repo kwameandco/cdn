@@ -1,6 +1,6 @@
-/*! kw-therapist-matcher v1.1.1 — https://github.com/kwameandco/clients */
+/*! kw-therapist-matcher v1.1.2 — https://github.com/kwameandco/clients */
 /**
- * kw-therapist-matcher v1.1.1
+ * kw-therapist-matcher v1.1.2
  * Chat-style "find your therapist" quiz for a Webflow site whose therapists live in a
  * CMS collection. One script tag + one stylesheet, no dependencies, no API calls, no
  * credentials. See README.md and instructions.md.
@@ -57,7 +57,7 @@
 
   if (win.kwTherapistMatcher) return;
 
-  const VERSION = '1.1.1';
+  const VERSION = '1.1.2';
 
   const _cs = doc.currentScript || doc.querySelector('script[src*="kw-therapist-matcher"]');
   const attr = (n, fallback) => _cs?.getAttribute(n) ?? fallback;
@@ -266,6 +266,16 @@
           h('span', { id: 'kwtm-title' }, 'THERAPIST MATCHER')),
         h('button', { class: 'kwtm-close', type: 'button', 'aria-label': 'Close', onclick: () => setOpen(false, true) }, '×')),
       content, footer);
+    // Keep quiz clicks away from the page's tag manager and pixels. Bloom's GTM fires a
+    // Google Ads *phone-call conversion* on any tel: link click, so tapping 988 in the
+    // crisis line counted as an ad conversion (tested on the live page, 2026-10-22). Answer
+    // clicks fired nothing, but their button text is the health answer, so they stay in
+    // here too. The SimplePractice booking anchor is let through: its handler may be
+    // delegated to the document, and a dead booking button is worse than an event GTM
+    // ignores ("Request an Appointment" matches no trigger).
+    win_.addEventListener('click', (e) => {
+      if (!e.target.closest('[data-spwidget-autobind]')) e.stopPropagation();
+    });
     win_.addEventListener('pointerdown', () => { engaged = true; });
     win_.addEventListener('keydown', () => { engaged = true; });
     doc.addEventListener('keydown', (e) => {
