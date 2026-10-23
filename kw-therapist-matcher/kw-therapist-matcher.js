@@ -1,6 +1,6 @@
-/*! kw-therapist-matcher v1.1.2 — https://github.com/kwameandco/clients */
+/*! kw-therapist-matcher v1.2.0 — https://github.com/kwameandco/clients */
 /**
- * kw-therapist-matcher v1.1.2
+ * kw-therapist-matcher v1.2.0
  * Chat-style "find your therapist" quiz for a Webflow site whose therapists live in a
  * CMS collection. One script tag + one stylesheet, no dependencies, no API calls, no
  * credentials. See README.md and instructions.md.
@@ -40,10 +40,11 @@
  *   data-autoopen-once       "on" (default): auto-open at most once per visit (tab session)
  *   data-autoopen-paths=""   comma list of paths it may auto-open on; "/services/*" matches a
  *                            folder. Empty = every page the script is on
- *   data-autoopen-phone      "on" (default) / "off": whether it may auto-open on a phone,
- *                            where it fills the screen
+ *   data-autoopen-phone      "off" (default) / "on": whether it may auto-open on a phone,
+ *                            where it fills the screen (Google penalises that on mobile)
  *   data-typing="800"        ms of "typing" dots before each message; 0 = none
  *   data-all-url=""          "See all therapists" link on the results; empty = no button
+ *   data-rtb-url="/about-us/rooted-to-bloom"   link under the Rooted to Bloom explanation
  *   data-contact-url="/contact-us"
  *   data-phone="813-262-0460"
  *   data-results="2"         how many matches to show
@@ -57,7 +58,7 @@
 
   if (win.kwTherapistMatcher) return;
 
-  const VERSION = '1.1.2';
+  const VERSION = '1.2.0';
 
   const _cs = doc.currentScript || doc.querySelector('script[src*="kw-therapist-matcher"]');
   const attr = (n, fallback) => _cs?.getAttribute(n) ?? fallback;
@@ -66,9 +67,10 @@
     autoOpen:   attr('data-autoopen', '3000'),
     autoOnce:   attr('data-autoopen-once', 'on') !== 'off',
     autoPaths:  attr('data-autoopen-paths', ''),
-    autoPhone:  attr('data-autoopen-phone', 'on') !== 'off',
+    autoPhone:  attr('data-autoopen-phone', 'off') === 'on',
     typing:     Number.isFinite(typingMs) && typingMs >= 0 ? typingMs : 800,
     allUrl:     attr('data-all-url', ''),
+    rtbUrl:     attr('data-rtb-url', '/about-us/rooted-to-bloom'),
     contactUrl: attr('data-contact-url', '/contact-us'),
     phone:      attr('data-phone', '813-262-0460'),
     results:    parseInt(attr('data-results', '2'), 10) || 2,
@@ -91,9 +93,32 @@
       opts: { A: 'Direct', B: 'Nurturing', C: 'Skills-based', D: 'LGBTQ+', E: 'Youthful', F: 'Bilingual', G: 'Clinician of color', H: 'Religious', I: 'Spiritual' } },
     { key: 'Q6', q: 'When works best for you?', sub: "Consistency is a big part of progress. Let's find a therapist whose availability matches yours.",
       opts: { A: 'After school', B: 'Evenings', C: 'Weekends', D: 'Mornings', E: 'Flexible' } },
+    // Q7's options are the first of two steps (PAYMENT below). `codes` are what the CMS
+    // stores per therapist, unchanged since v1.0: A insurance, B Medicaid, C private / cash
+    // pay, D Rooted to Bloom, E licensed for United / Optum / Oscar, F EAP.
     { key: 'Q7', q: 'What is your preferred payment method?', sub: "Whether you're using insurance or paying out of pocket, we want to make sure there are no surprises.",
-      opts: { A: 'Insurance', B: 'I have Medicaid or need reduced-cost care', C: 'Private pay', D: 'Rooted to Bloom', E: 'United / Optum / Oscar / UHC', F: 'EAP' } }
+      opts: { INS: 'Insurance', MED: 'Medicaid', EAP: 'EAP', CASH: 'Cash Pay' },
+      codes: ['A', 'B', 'C', 'D', 'E', 'F'] }
   ];
+  QUESTIONS.forEach((q) => { q.codes ??= Object.keys(q.opts); });
+
+  /* ── Payment, step two ────────────────────────────────────────────────────── */
+  // Danielle's rules (Oct 2026): Aetna, BCBS and Cigna are taken by every therapist except
+  // the student interns; United, Oscar and Optum (and United / Optum EAP) only by a fully
+  // licensed clinician; Medicaid families see only the Rooted to Bloom interns; cash pay
+  // sees everyone except the interns. All of that is already in the six CMS switches, so
+  // each answer maps to codes and nothing new is stored. "E+F" needs both: licensed AND
+  // takes EAP. null = we can't match it here, so the visitor gets the call-the-office screen.
+  const PAYMENT = {
+    INS: { q: 'Which insurance do you have?', opts: {
+      AETNA: ['Aetna', 'A'], BCBS: ['BCBS / Florida Blue', 'A'], CIGNA: ['Cigna', 'A'],
+      UHC: ['United / UHC', 'E'], OSCAR: ['Oscar', 'E'], OPTUM: ['Optum', 'E'],
+      NOTLISTED: ["My insurance isn't listed", null] } },
+    MED: { code: 'B', why: 'Rooted to Bloom' },
+    EAP: { q: 'Which EAP do you have?', opts: {
+      AETNA: ['Aetna EAP', 'F'], CIGNA: ['Cigna EAP', 'F'], UO: ['United / Optum EAP', 'E+F'], OTHER: ['Other EAP', 'F', 'Takes EAP'] } },
+    CASH: { code: 'C', why: 'Cash pay' }
+  };
 
   /* ── Scoring — as inherited ───────────────────────────────────────────────── */
   // Payment and scheduling are hard filters: no match = excluded. Accepting every option
@@ -108,9 +133,9 @@
       const choice = answers[qKey];
       if (!choice) continue;
       const accepts = therapist.accepts[qKey] || [];
-      const allCount = Object.keys(QUESTIONS.find((q) => q.key === qKey).opts).length;
+      const allCount = QUESTIONS.find((q) => q.key === qKey).codes.length;
       const isAll = accepts.length >= allCount;
-      const ok = accepts.includes(choice);
+      const ok = choice.split('+').every((c) => accepts.includes(c));
       if (!ok && HARD_FILTERS.includes(qKey)) return null;
       if (ok) total += isAll ? 0.5 * weight : (1 / accepts.length) * weight * 2;
     }
@@ -152,7 +177,7 @@
         .filter((c) => !c.closest('.w-condition-invisible'))
         .map((c) => (c.getAttribute('data-kwtm-code') || c.textContent).trim().toUpperCase())
         .filter(Boolean);
-      QUESTIONS.forEach(({ key, opts }) => {
+      QUESTIONS.forEach(({ key, codes }) => {
         const takes = el.querySelector(`[data-kwtm-accepts="${key}"]`);
         // "Doesn't offer" lists: Bloom's plan renders at most 5 items in a nested list, and
         // most therapists take 7-8 answers, so the CMS stores the short list of exclusions.
@@ -160,7 +185,7 @@
         if (takes) accepts[key] = codesIn(takes);
         else if (excludes) {
           const out = codesIn(excludes);
-          accepts[key] = Object.keys(opts).filter((c) => !out.includes(c));
+          accepts[key] = codes.filter((c) => !out.includes(c));
         } else accepts[key] = [];
       });
       const img = el.querySelector('img[data-kwtm="photo"]');
@@ -184,7 +209,8 @@
       // CMS names carry a "Q7 · " prefix so the editor's multi-reference pickers are
       // searchable; visitors shouldn't see it.
       const label = el.textContent.trim().replace(/^Q\d\s*[·:\-–]\s*/, '');
-      if (q && code && label) q.opts[code] = label;
+      // Only relabels an answer that exists: the old Q7 labels (A-F) may still be in the CMS.
+      if (q && code && label && code in q.opts) q.opts[code] = label;
     });
   }
 
@@ -227,16 +253,14 @@
 
   /* ── "Why this match" ─────────────────────────────────────────────────────── */
   // Only answers the therapist actually takes. Payment and schedule are guaranteed by the
-  // hard filters; how-to-meet and the preference are listed only when they matched. Keyed by
-  // code, not label, so a CMS relabel can't turn "Takes insurance" into a full sentence.
-  const REASON = {
-    Q7: { A: 'Takes insurance', B: 'Reduced-cost care', C: 'Private pay', D: 'Rooted to Bloom', E: 'Takes United / Optum / Oscar / UHC', F: 'Takes EAP' },
-    Q6: { E: 'Flexible schedule' }
-  };
+  // hard filters (payWhy is set from the visitor's own payment answer, e.g. "Takes Aetna");
+  // how-to-meet and the preference are listed only when they matched.
+  const REASON = { Q6: { E: 'Flexible schedule' } };
   function reasons(t, answers) {
-    return ['Q7', 'Q6', 'Q3', 'Q5']
+    const out = answers.payWhy ? [answers.payWhy] : [];
+    return out.concat(['Q6', 'Q3', 'Q5']
       .filter((k) => answers[k] && (t.accepts[k] || []).includes(answers[k]))
-      .map((k) => REASON[k]?.[answers[k]] || QUESTIONS.find((q) => q.key === k).opts[answers[k]]);
+      .map((k) => REASON[k]?.[answers[k]] || QUESTIONS.find((q) => q.key === k).opts[answers[k]]));
   }
 
   /* ── UI ───────────────────────────────────────────────────────────────────── */
@@ -244,6 +268,7 @@
   let firstName = '';
   let step = 0;
   let answers = {};
+  let payStep = null;  // 'INS' / 'EAP' while the second payment question is showing
   // True once the visitor has opened or touched the window. Until then nothing moves focus:
   // an auto-open must not pull a keyboard or screen-reader user out of the page.
   let engaged = false;
@@ -350,24 +375,33 @@
     firstName = (name || '').trim();
     step = 0;
     answers = {};
+    payStep = null;
     footer.hidden = false;
     showStep();
   }
 
+  const PAY = QUESTIONS.length - 1;
+
   function showStep() {
     const q = QUESTIONS[step];
+    // The insurer / EAP step is part of question 7, not an eighth question.
     progress.textContent = `Question ${step + 1} of ${QUESTIONS.length}`;
+    const second = step === PAY && payStep ? PAYMENT[payStep] : null;
+    const title = second ? second.q : q.q;
+    const options = second
+      ? Object.entries(second.opts).map(([key, [label]]) => [key, label, answers.paySub === key])
+      : Object.entries(q.opts).map(([key, label]) => [key, label,
+        (step === PAY ? answers.payTop : answers[q.key]) === key]);
     clear();
     typing(() => {
       const hello = step === 0 && firstName ? `Hello ${firstName}! ` : '';
-      area.append(lead(bubble(hello, h('strong', {}, q.q), q.sub ? [h('br'), h('small', {}, q.sub)] : [])));
+      area.append(lead(bubble(hello, h('strong', {}, title), !second && q.sub ? [h('br'), h('small', {}, q.sub)] : [])));
       // Back keeps the earlier answer: it is shown selected and stays in `answers` until
       // a different option is chosen.
-      const group = h('div', { role: 'group', 'aria-label': q.q });
-      Object.entries(q.opts).forEach(([code, label]) => {
-        const picked = answers[q.key] === code;
+      const group = h('div', { role: 'group', 'aria-label': title });
+      options.forEach(([key, label, picked]) => {
         group.append(h('button', { class: picked ? 'kwtm-option kwtm-option--selected' : 'kwtm-option',
-          type: 'button', 'aria-pressed': String(picked), onclick: () => choose(code) }, label));
+          type: 'button', 'aria-pressed': String(picked), onclick: () => (second ? choosePayment(key) : choose(key)) }, label));
       });
       area.append(group);
       focusLead();
@@ -375,12 +409,37 @@
   }
 
   function choose(code) {
+    if (step === PAY) {
+      const pay = PAYMENT[code];
+      if (answers.payTop !== code) delete answers.paySub;
+      answers.payTop = code;
+      if (pay.opts) { payStep = code; showStep(); return; }
+      answers.Q7 = pay.code;
+      answers.payWhy = pay.why;
+      results();
+      return;
+    }
     answers[QUESTIONS[step].key] = code;
-    if (step < QUESTIONS.length - 1) { step++; showStep(); } else results();
+    step++;
+    showStep();
+  }
+
+  function choosePayment(key) {
+    const [label, codes, why] = PAYMENT[payStep].opts[key];
+    answers.paySub = key;
+    // 'NONE' matches no therapist, so an unlisted insurer lands on the call-the-office screen.
+    answers.Q7 = codes || 'NONE';
+    answers.payWhy = why || `Takes ${label}`;
+    results();
   }
 
   function back() {
-    if (step > 0) { step--; showStep(); }
+    if (step === QUESTIONS.length) {  // from the results: back to the last payment screen
+      step = PAY;
+      payStep = PAYMENT[answers.payTop]?.opts ? answers.payTop : null;
+      showStep();
+    } else if (payStep) { payStep = null; showStep(); }
+    else if (step > 0) { step--; showStep(); }
     else intro();
   }
 
@@ -409,27 +468,46 @@
       CONFIG.allUrl ? h('a', { class: 'kwtm-action', href: CONFIG.allUrl }, 'See all therapists') : null);
   }
 
+  const phoneLink = () => h('a', { href: `tel:${CONFIG.phone.replace(/[^\d+]/g, '')}` }, CONFIG.phone);
+
+  // Danielle's text (items 2 and 3). The fee is LEFT OUT until she says which is right:
+  // item 2 says "RTB rates start at $25", item 3 says "Sessions are $25" (asked 2026-10-21).
+  // To restore, the middle of the sentence becomes:
+  //   "…through our Rooted to Bloom program. Sessions are $25 with supervised Master of …"
+  function rootedToBloom() {
+    return bubble('While Bloom does not currently accept Medicaid, we offer an affordable alternative through our Rooted to Bloom program, with supervised Master of Social Work (MSW) graduate students from universities including USF, Howard University, and Tulane University. ',
+      h('a', { href: CONFIG.rtbUrl }, 'About Rooted to Bloom'));
+  }
+
   function results() {
     const ranked = rank(roster, answers);
     if (CONFIG.debug) console.table(ranked.map((r) => ({ name: r.t.name, score: r.s.toFixed(3) })));
     // Back from the results returns to the last question (step is one past the end).
     step = QUESTIONS.length;
+    payStep = null;
     progress.textContent = '';
     clear();
     typing(() => {
       const top = ranked.slice(0, CONFIG.results).map((r) => r.t);
+      // Medicaid: explain Rooted to Bloom right after the heading the focus lands on.
+      const rtb = answers.payTop === 'MED' ? rootedToBloom() : null;
       if (top.length) {
         const opener = 'based on your specific needs — especially your payment and scheduling requirements — here are your best matches:';
-        area.append(lead(bubble(firstName ? `${firstName}, ${opener}` : opener[0].toUpperCase() + opener.slice(1))));
+        area.append(lead(bubble(firstName ? `${firstName}, ${opener}` : opener[0].toUpperCase() + opener.slice(1))), rtb || '');
         top.forEach((t) => area.append(card(t)));
         area.append(bubble('When you\'re ready, hit ', h('strong', {}, '"Request an Appointment"'),
           " and we'll be in touch to walk you through the next steps. Still have questions? Use the ",
-          h('strong', {}, '"Contact Us"'), " button and we'll be happy to help."));
+          h('strong', {}, '"Contact Us"'), " button and we'll be happy to help."),
+          // Client wording (item 11, Oct 2026).
+          bubble("If the suggested therapist matches aren't quite right, or you're simply looking for the next available appointment, please call our office! Our intake coordinator will help you find the right therapist for your needs or secure the next available opening."),
+          h('p', { class: 'kwtm-phone' }, 'Call us at ', phoneLink()));
       } else {
+        // Client-approved wording (Oct 2026).
         area.append(
-          lead(bubble("We want to make sure you get exactly the right fit. Based on your preferences, we'd love to connect with you directly to find your perfect match — whether that's someone at Bloom or a vetted referral.")),
-          h('a', { class: 'kwtm-book', href: CONFIG.contactUrl }, 'Contact Us'),
-          h('p', { class: 'kwtm-phone' }, `Or call us at ${CONFIG.phone}`));
+          lead(bubble("We couldn't find a match from your answers, but we can still help. Call our office at ", phoneLink(),
+            ' and our intake coordinator will find the right therapist or the next available opening.')),
+          rtb || '',
+          h('a', { class: 'kwtm-book', href: CONFIG.contactUrl }, 'Contact Us'));
       }
       area.append(actions(), crisis());
       focusLead();
@@ -453,7 +531,7 @@
     version: VERSION,
     open: () => win_ && setOpen(true, true),
     close: () => win_ && setOpen(false, true),
-    _internals: { score, rank, QUESTIONS, shortName, readRoster, reasons, pathMatches }
+    _internals: { score, rank, QUESTIONS, PAYMENT, shortName, readRoster, reasons, pathMatches }
   };
 
   if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', init);

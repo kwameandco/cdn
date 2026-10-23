@@ -1,4 +1,4 @@
-/*! kw-therapist-matcher v1.1.2 */
+/*! kw-therapist-matcher v1.2.0 */
 /* Visuals as inherited, plus v1.1: text launcher, site fonts, full-screen on phones,
    focus rings, 44px targets, reduced motion. Brand colours are custom properties so
    another site can retheme without touching selectors. */
@@ -81,6 +81,7 @@
 .kwtm-window .kwtm-action { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 8px 12px; background: #fff; border: 1px solid var(--kwtm-ink); border-radius: 20px; color: var(--kwtm-ink); font-size: .9375rem; font-weight: bold; text-decoration: none; cursor: pointer; text-align: center; }
 .kwtm-crisis { font-size: .875rem; line-height: 1.5; color: #333; background: #fff; border-left: 3px solid var(--kwtm-ink); padding: 8px 10px; margin: 16px 0 0; }
 .kwtm-crisis a { color: var(--kwtm-ink); font-weight: 700; }
+.kwtm-bubble a, .kwtm-phone a { color: var(--kwtm-ink); font-weight: 700; text-decoration: underline; }
 
 /*! Focus + motion */
 .kwtm-launcher:focus-visible, .kwtm-window :focus-visible { outline: 3px solid var(--kwtm-ink); outline-offset: 2px; }
