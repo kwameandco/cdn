@@ -1,10 +1,10 @@
-/*! kw-brandtext v1.0.0 — colour each part of a brand name the same way everywhere */
+/*! kw-brandtext v1.1.0 — colour each part of a brand name the same way everywhere */
 (function () {
   "use strict";
 
   if (window.kwBrandText) return;   // idempotent: survives double script injection
 
-  var VERSION = "1.0.0";
+  var VERSION = "1.1.0";
 
   /* ------------------------------------------------------------------ config
 
@@ -28,92 +28,124 @@
 
   var cfg = window.kwBrandTextConfig || {};
   var TERMS = cfg.terms || [];
-  var SKIP = "script,style,textarea,input,select,option,noscript,[contenteditable],.kw-bt" +
+  // Navigation and buttons keep their own styling: a brand name in a menu item or on a
+  // button is UI, not copy. Builders that render menus/buttons without these tags add
+  // their own selectors through `skip`.
+  var SKIP_TEXT = "script,style,textarea,input,select,option,noscript,[contenteditable]," +
+             "nav,button,[role=navigation],[role=button],[role=menu]" +
              (cfg.skip ? "," + cfg.skip : "");
 
   if (!TERMS.length) return;
 
-  // Segment boundaries are decided by the term, not the match: the match can be longer
-  // than the term when a space was matched by several spaces or an &nbsp; run.
-  // Typography is normalised too: a term written with ' and ... also matches the curly
-  // apostrophe and the single-character ellipsis, whichever the copy happens to use.
-  function key(s) {
-    return s.toLowerCase().replace(/[\s\u00a0]+/g, " ")
-      .replace(/[\u2018\u2019]/g, "'").replace(/\u2026/g, "...");
-  }
+  // Typography is normalised: a term written with ' and ... also matches the curly
+  // apostrophe and the single-character ellipsis, whichever the copy happens to use, and
+  // a space after an ellipsis is optional ("decorate…Define").
   function pattern(s) {
-    return key(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      .replace(/\\\.\\\.\\\./g, "(?:\\.\\.\\.|\u2026)")
-      .replace(/'/g, "['\u2018\u2019]")
+    return s.toLowerCase().replace(/[‘’]/g, "'").replace(/…/g, "...")
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/\\\.\\\.\\\.( *)/g, function (_, sp) { return "(?:\\.\\.\\.|…)" + (sp ? "[\\s\\u00a0]*" : ""); })
+      .replace(/'/g, "['‘’]")
       .replace(/ +/g, "[\\s\\u00a0]+");
   }
 
-  var map = {};
-  TERMS.forEach(function (t) {
-    map[key(t.map(function (s) { return s[0]; }).join(""))] = t;
-  });
-  var src = Object.keys(map)
-    .sort(function (a, b) { return b.length - a.length; })   // longest first: alternation is ordered
-    .map(pattern).join("|");
-  var re = new RegExp(src, "gi");
-  var test = new RegExp(src, "i");
+  // One regex per term with a capture group per segment, so the groups cut a match into
+  // its coloured parts however many spaces or which apostrophe it actually contains.
+  var terms = TERMS.map(function (t) {
+    return {
+      segs: t,
+      len: t.reduce(function (n, s) { return n + s[0].length; }, 0),
+      re: new RegExp("^" + t.map(function (s) { return "(" + pattern(s[0]) + ")"; }).join("") + "$", "i"),
+      src: t.map(function (s) { return pattern(s[0]); }).join("")
+    };
+  }).sort(function (a, b) { return b.len - a.len; });   // longest first: alternation is ordered
+  var re = new RegExp(terms.map(function (t) { return t.src; }).join("|"), "gi");
 
-  // Cut the matched text into the term's segments. Each segment takes as many characters
-  // of the match as it has once spaces are counted as runs, so "Gallery&nbsp;&nbsp;Keoki"
-  // still splits after "Gallery".
-  function build(m) {
-    var term = map[key(m)];
-    var w = document.createElement("span");
-    w.className = "kw-bt";
-    var i = 0;
-    term.forEach(function (seg, n) {
-      var want = key(seg[0]), got = "";
-      var j = i;
-      while (j < m.length && key(got) !== want) got += m[j++];
-      // swallow the rest of a space run so the next segment starts on a letter
-      while (n < term.length - 1 && /[\s\u00a0]/.test(want.slice(-1)) && /[\s\u00a0]/.test(m[j] || "")) got += m[j++];
-      var s = document.createElement("span");
-      s.className = seg[1];
-      s.textContent = got;
-      w.appendChild(s);
-      i = j;
-    });
-    if (i < m.length) w.lastChild.textContent += m.slice(i);
-    return w;
+  // Text is matched per block (paragraph, heading, list item, link…), across the inline
+  // elements inside it. Squarespace's editor splits copy into <strong>, <em> and coloured
+  // <span>s at will — "<strong>GALLERY <em>KEOKI</em></strong>" is one name in two
+  // elements — so matching one text node at a time misses most of the site.
+  var BLOCK = "p,h1,h2,h3,h4,h5,h6,li,dt,dd,td,th,blockquote,figcaption,label,div,section," +
+              "article,header,footer,main,aside,body";
+
+  function piece(node, start, end, cls) {
+    if (end < node.nodeValue.length) node.splitText(end);
+    var mid = start > 0 ? node.splitText(start) : node;
+    var s = document.createElement("span");
+    s.className = "kw-bt " + cls;
+    mid.parentNode.replaceChild(s, mid);
+    s.appendChild(mid);
+    // A link's underline is drawn by the link, not the text, so a span cannot remove it.
+    // Mark the link and let the CSS decide (a.kw-bt-link { text-decoration: none }).
+    var a = s.parentElement.closest("a");
+    if (a) a.classList.add("kw-bt-link");
   }
 
-  function wrap(node) {
-    var t = node.nodeValue, f = document.createDocumentFragment(), last = 0;
-    t.replace(re, function (m, off) {
-      f.appendChild(document.createTextNode(t.slice(last, off)));
-      f.appendChild(build(m));
-      last = off + m.length;
-      return m;
+  function scan(nodes) {
+    var full = "", at = [];
+    nodes.forEach(function (n) { at.push(full.length); full += n.nodeValue; });
+    var cuts = [], m;
+    re.lastIndex = 0;
+    while ((m = re.exec(full))) {
+      if (!m[0]) { re.lastIndex++; continue; }
+      var term = null, g = null;
+      for (var k = 0; k < terms.length && !g; k++) { g = terms[k].re.exec(m[0]); term = terms[k]; }
+      if (!g) continue;
+      var pos = m.index;
+      term.segs.forEach(function (seg, n) {
+        cuts.push({ from: pos, to: pos + g[n + 1].length, cls: seg[1] });
+        pos += g[n + 1].length;
+      });
+    }
+    if (!cuts.length) return;
+    // Map each cut back onto the text nodes it covers. Work from the end of each node so
+    // splitting never shifts an offset still to be used.
+    var jobs = [];
+    cuts.forEach(function (c) {
+      nodes.forEach(function (n, i) {
+        var s = Math.max(c.from, at[i]), e = Math.min(c.to, at[i] + n.nodeValue.length);
+        if (e > s && !locked(n)) jobs.push({ n: n, s: s - at[i], e: e - at[i], cls: c.cls });
+      });
     });
-    f.appendChild(document.createTextNode(t.slice(last)));
-    node.parentNode.replaceChild(f, node);
+    nodes.forEach(function (n) {
+      jobs.filter(function (j) { return j.n === n; })
+        .sort(function (a, b) { return b.s - a.s; })
+        .forEach(function (j) { piece(j.n, j.s, j.e, j.cls); });
+    });
   }
+
+  function locked(n) { return !!n.parentElement.closest(".kw-bt"); }
 
   function run(root) {
-    var tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false), hits = [], n;
+    // Text already wrapped is still read (so the words either side of it are not joined
+    // into a false match) but never wrapped twice.
+    var tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+    var groups = [], cur = null, n;
     while ((n = tw.nextNode())) {
-      if (n.parentElement && test.test(n.nodeValue) && !n.parentElement.closest(SKIP)) hits.push(n);
+      var el = n.parentElement;
+      if (!el || el.closest(SKIP_TEXT)) continue;
+      var b = el.closest(BLOCK) || root;
+      if (!cur || cur.block !== b) groups.push(cur = { block: b, nodes: [] });
+      cur.nodes.push(n);
     }
-    hits.forEach(wrap);
+    groups.forEach(function (g) {
+      if (g.nodes.some(function (x) { return !locked(x); })) scan(g.nodes);
+    });
   }
 
   function start() {
     run(document.body);
-    // Lightboxes, galleries and forms are rendered after load. Our own insertions are
-    // skipped: they sit inside .kw-bt, and the text either side of them no longer matches.
-    new MutationObserver(function (ms) {
+    // Lightboxes, galleries and forms are rendered after load.
+    var obs = new MutationObserver(function (ms) {
       ms.forEach(function (m) {
         m.addedNodes.forEach(function (a) {
-          if (a.nodeType === 3 && a.parentElement && !a.parentElement.closest(SKIP)) run(a.parentElement);
-          else if (a.nodeType === 1 && !a.closest(".kw-bt")) run(a);
+          var el = a.nodeType === 1 ? a : a.parentElement;
+          if (!el || !el.isConnected || el.closest(".kw-bt")) return;
+          run(el.closest(BLOCK) || el);
         });
       });
-    }).observe(document.body, { childList: true, subtree: true });
+      obs.takeRecords();   // drop the records our own wrapping just produced
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
   }
 
   window.kwBrandText = { version: VERSION, run: run };
