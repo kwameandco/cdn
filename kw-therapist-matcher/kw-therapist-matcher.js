@@ -1,6 +1,6 @@
-/*! kw-therapist-matcher v1.2.0 — https://github.com/kwameandco/clients */
+/*! kw-therapist-matcher v1.2.1 — https://github.com/kwameandco/clients */
 /**
- * kw-therapist-matcher v1.2.0
+ * kw-therapist-matcher v1.2.1
  * Chat-style "find your therapist" quiz for a Webflow site whose therapists live in a
  * CMS collection. One script tag + one stylesheet, no dependencies, no API calls, no
  * credentials. See README.md and instructions.md.
@@ -58,7 +58,7 @@
 
   if (win.kwTherapistMatcher) return;
 
-  const VERSION = '1.2.0';
+  const VERSION = '1.2.1';
 
   const _cs = doc.currentScript || doc.querySelector('script[src*="kw-therapist-matcher"]');
   const attr = (n, fallback) => _cs?.getAttribute(n) ?? fallback;
@@ -105,8 +105,8 @@
   /* ── Payment, step two ────────────────────────────────────────────────────── */
   // Danielle's rules (Oct 2026): Aetna, BCBS and Cigna are taken by every therapist except
   // the student interns; United, Oscar and Optum (and United / Optum EAP) only by a fully
-  // licensed clinician; Medicaid families see only the Rooted to Bloom interns; cash pay
-  // sees everyone except the interns. All of that is already in the six CMS switches, so
+  // licensed clinician; Medicaid families see only the Rooted to Bloom interns; everyone,
+  // interns included, takes cash pay (29 Oct). All of that is already in the six CMS switches, so
   // each answer maps to codes and nothing new is stored. "E+F" needs both: licensed AND
   // takes EAP. null = we can't match it here, so the visitor gets the call-the-office screen.
   const PAYMENT = {
@@ -470,12 +470,10 @@
 
   const phoneLink = () => h('a', { href: `tel:${CONFIG.phone.replace(/[^\d+]/g, '')}` }, CONFIG.phone);
 
-  // Danielle's text (items 2 and 3). The fee is LEFT OUT until she says which is right:
-  // item 2 says "RTB rates start at $25", item 3 says "Sessions are $25" (asked 2026-10-21).
-  // To restore, the middle of the sentence becomes:
-  //   "…through our Rooted to Bloom program. Sessions are $25 with supervised Master of …"
+  // Danielle's text (item 3), verbatim. Fee confirmed as "Sessions are $25" (29 Oct 2026),
+  // not "rates start at $25". It is a fee claim: change it only on her word.
   function rootedToBloom() {
-    return bubble('While Bloom does not currently accept Medicaid, we offer an affordable alternative through our Rooted to Bloom program, with supervised Master of Social Work (MSW) graduate students from universities including USF, Howard University, and Tulane University. ',
+    return bubble('While Bloom does not currently accept Medicaid, we offer an affordable alternative through our Rooted to Bloom program. Sessions are $25 with supervised Master of Social Work (MSW) graduate students from universities including USF, Howard University, and Tulane University. ',
       h('a', { href: CONFIG.rtbUrl }, 'About Rooted to Bloom'));
   }
 
