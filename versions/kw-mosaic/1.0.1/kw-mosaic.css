@@ -1,0 +1,49 @@
+/*! kw-mosaic v1.0.1 */
+
+/* The engine sets every size inline, because sizes are computed per viewport.
+   What lives here is only what CSS should own: the hover state, the caption,
+   and the guards that stop a host theme interfering. */
+
+.kw-mosaic { display: block; position: static; height: auto; }
+
+.kw-mosaic__row   { display: flex; justify-content: center; }
+.kw-mosaic__stack { display: flex; flex-direction: column; }
+
+.kw-mosaic__tile { position: relative; display: block; overflow: hidden; background: #000; }
+
+/* Squarespace's gallery CSS sets object-fit and positioning on .thumb-image at
+   several specificities. These two rules are the ones that must win. */
+.kw-mosaic__tile img {
+  position: static !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  transition: transform .7s cubic-bezier(.2,.7,.2,1);
+}
+.kw-mosaic__tile:hover img { transform: scale(1.035); }
+
+/* Hover caption */
+.kw-mosaic__cap {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 26px 14px 12px;
+  background: linear-gradient(to top, rgba(0,0,0,.78), rgba(0,0,0,0));
+  opacity: 0; transition: opacity .32s ease; pointer-events: none;
+  color: #fff;
+}
+.kw-mosaic__tile:hover .kw-mosaic__cap,
+.kw-mosaic__tile:focus-visible .kw-mosaic__cap { opacity: 1; }
+
+.kw-mosaic__cap b    { display: block; font-weight: 400; font-size: 14px; letter-spacing: .05em; }
+.kw-mosaic__cap span { display: block; margin-top: 3px; font-size: 11.5px; color: #c6c6c6; }
+
+/* A tile too short to carry two lines gets the title only. */
+.kw-mosaic__cap--small        { padding: 14px 10px 7px; }
+.kw-mosaic__cap--small span   { display: none; }
+
+.kw-mosaic__tile:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .kw-mosaic__tile img,
+  .kw-mosaic__cap { transition: none; }
+  .kw-mosaic__tile:hover img { transform: none; }
+}

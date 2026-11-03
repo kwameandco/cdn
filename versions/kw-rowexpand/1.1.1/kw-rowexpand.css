@@ -1,0 +1,119 @@
+/*! kw-rowexpand v1.1.1 */
+
+/* Tag list — smaller than body text, wraps, sits tight in a table column. */
+[data-kw-rowexpand-tags] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-xs, 0.5rem);
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--kw-rowexpand-tag-size, 0.8125rem); /* 13px — a step below body */
+  line-height: 1.3;
+}
+
+[data-kw-rowexpand-tags] > * {
+  margin: 0;
+}
+
+/* Description clamp. Absorbed from the old filter-readmore embed: clamp in
+   place with -webkit-line-clamp so the text still reflows, rather than hiding
+   a separate block. --kw-rowexpand-lines must match data-kw-rowexpand-lines. */
+[data-kw-rowexpand-desc] > p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--kw-rowexpand-lines, 3);
+  line-clamp: var(--kw-rowexpand-lines, 3);
+  overflow: hidden;
+  transition: max-height 0.35s ease;
+}
+
+[data-kw-rowexpand-desc].kw-rowexpand-open > p {
+  -webkit-line-clamp: 999;
+  line-clamp: 999;
+}
+
+/* Toggles. Styled as inline text so they read as part of the content, while
+   remaining real <button>s for keyboard and screen-reader users. */
+.kw-rowexpand-more,
+.kw-rowexpand-readmore {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.kw-rowexpand-more {
+  font-size: inherit;
+  color: var(--foreground-muted, currentColor);
+}
+
+.kw-rowexpand-readmore {
+  display: inline-block;
+  margin-top: 0.4rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--action-primary-bg, currentColor);
+}
+
+.kw-rowexpand-more:hover,
+.kw-rowexpand-more:focus-visible {
+  color: var(--foreground-default, currentColor);
+}
+
+/* Never remove the focus ring — these controls are keyboard-operable and often
+   the only route to the collapsed content. */
+.kw-rowexpand-more:focus-visible,
+.kw-rowexpand-readmore:focus-visible {
+  outline: 2px solid var(--focus-color, currentColor);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Region revealed on expand. `hidden` does the hiding (so it leaves the a11y
+   tree); this only handles spacing when shown. */
+[data-kw-rowexpand-detail] {
+  margin-top: var(--gap-xs, 0.5rem);
+}
+
+/* `hidden` must win even against a display rule from the design system,
+   otherwise collapsed content stays visible. */
+[data-kw-rowexpand-tags] > [hidden],
+[data-kw-rowexpand-detail][hidden],
+.kw-rowexpand-more[hidden],
+.kw-rowexpand-readmore[hidden] {
+  display: none !important;
+}
+
+/* Reveal motion. The collapsed tags and the detail region use the same easing
+   and duration as the description clamp, so expanding a row reads as ONE
+   interaction rather than a smooth description next to snapping tags. Tags are
+   staggered slightly so a long list resolves left-to-right instead of flashing. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-kw-rowexpand-detail]:not([hidden]),
+  .kw-rowexpand-overflow:not([hidden]) {
+    animation: kw-rowexpand-in 240ms ease both;
+  }
+
+  .kw-rowexpand-overflow:not([hidden]):nth-of-type(n + 5) { animation-delay: 30ms; }
+  .kw-rowexpand-overflow:not([hidden]):nth-of-type(n + 7) { animation-delay: 60ms; }
+  .kw-rowexpand-overflow:not([hidden]):nth-of-type(n + 9) { animation-delay: 90ms; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-kw-rowexpand-desc] > p {
+    transition: none;
+  }
+}
+
+@keyframes kw-rowexpand-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}

@@ -1,0 +1,209 @@
+
+/* ============================================================
+   CAROUSEL — base
+   JS sets data-carousel-mode, --_spv, --_gap, --_peek, --_snap
+   ============================================================ */
+
+[data-carousel] {
+  position: relative;
+  min-width: 0;
+}
+
+[data-carousel-track] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-width: 0;
+}
+
+[data-slide],
+[data-slide] > * {
+  min-width: 0;
+}
+
+[data-slide] > * {
+  width: 100%;
+}
+
+/*Hide on load for shuffle*/
+/* Hide carousel until preflight has set mode (kills pre-script FOUC) */
+body:not([data-ws-tag]) [data-carousel]:not([data-carousel-mode]) {
+  visibility: hidden;
+}
+
+/* Hide shuffle-enabled tracks until shuffle completes (kills visible reorder) */
+body:not([data-ws-tag]) [data-shuffle="true"] [data-carousel-track]:not([data-shuffled="true"]) {
+  visibility: hidden;
+}
+/* ============================================================
+   GRID MODE
+   JS applies data-carousel-mode="grid" on desktop
+   (unless data-carousel-always-slider is set)
+   ============================================================ */
+
+[data-carousel-mode="grid"] [data-carousel-track] {
+  display: grid;
+  grid-template-columns: repeat(var(--_spv), minmax(0, 1fr));
+  gap: var(--_gap);
+  overflow: visible;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+[data-carousel-mode="grid"] [data-slide] {
+  min-width: 0;
+  box-sizing: border-box;
+  width: auto!important;
+}
+
+/* Hide controls in grid mode */
+[data-carousel-mode="grid"] [data-carousel-prev],
+[data-carousel-mode="grid"] [data-carousel-next],
+[data-carousel-mode="grid"] [data-carousel-dots-container] {
+  display: none !important;
+}
+
+
+/* ============================================================
+   SLIDER MODE
+   JS applies data-carousel-mode="slider" on mobile/tablet
+   and always on data-carousel-always-slider instances
+   ============================================================ */
+
+[data-carousel-mode="slider"] [data-carousel-track] {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: var(--_gap);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  scroll-snap-type: x mandatory;
+  scroll-padding-left: var(--_peek);
+  scroll-padding-right: var(--_peek);
+  padding-left: var(--_peek);
+  padding-right: var(--_peek);
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Suppress scrollbar in WebKit */
+[data-carousel-mode="slider"] [data-carousel-track]::-webkit-scrollbar {
+  display: none;
+}
+
+/* Disable snap and smooth scroll while pointer-dragging */
+[data-carousel-mode="slider"] [data-carousel-track][data-dragging="true"] {
+  cursor: grabbing;
+  scroll-behavior: auto;
+  scroll-snap-type: none;
+}
+
+/* Slide sizing — --_snap is "start" (multi-per-view) or "center" (single + peek) */
+[data-carousel-mode="slider"] [data-slide] {
+  flex: 0 0 auto;
+  width: calc((100% - ((var(--_spv) - 1) * var(--_gap)) - (var(--_peek) * 2)) / var(--_spv));
+  scroll-snap-align: var(--_snap, start);
+}
+
+
+/* ============================================================
+   MOBILE PEEK / FULL-BLEED
+   Breaks track out of container padding so slides bleed to
+   the viewport edge. Arrows pulled back in to container edge.
+   Only applies on mobile (max 767px) with data-carousel-peek.
+   ============================================================ */
+
+@media (max-width: 767px) {
+  [data-carousel-mode="slider"][data-carousel-peek="true"] [data-carousel-track] {
+    width: calc(100% + (var(--spacing-default, clamp(1.5rem, 3vw, 2rem)) * 2));
+    margin-left: calc(var(--spacing-default, clamp(1.5rem, 3vw, 2rem)) * -1);
+    margin-right: calc(var(--spacing-default, clamp(1.5rem, 3vw, 2rem)) * -1);
+    padding-left: var(--spacing-default, clamp(1.5rem, 3vw, 2rem));
+    padding-right: var(--spacing-default, clamp(1.5rem, 3vw, 2rem));
+  }
+
+  [data-carousel-prev] {
+    left: 0;
+    transform: translateX(0);
+  }
+
+  [data-carousel-next] {
+    right: 0;
+    transform: translateX(0);
+  }
+}
+
+
+/* ============================================================
+   ARROWS
+   Positioned absolutely over the carousel.
+   JS sets data-disabled when at start/end (non-looping).
+   ============================================================ */
+
+[data-carousel-prev],
+[data-carousel-next] {
+  position: absolute;
+  z-index: 2;
+}
+
+[data-carousel-prev][data-disabled],
+[data-carousel-next][data-disabled] {
+  opacity: 0.3;
+  pointer-events: none;
+  cursor: default;
+}
+
+[data-carousel-prev]:focus-visible,
+[data-carousel-next]:focus-visible {
+  outline: 2px solid var(--focus-color, currentColor);
+  outline-offset: 2px;
+}
+
+
+/* ============================================================
+   DOTS
+   Opt-in via data-carousel-dots on the carousel root.
+   JS builds and manages dot buttons.
+   Visibility on desktop handled via Webstudio tokens.
+   ============================================================ */
+
+[data-carousel-dots-container] {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+[data-carousel-dot] {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: var(--border-default, #ccc);
+  transition: background 0.2s, transform 0.2s;
+}
+
+[data-carousel-dot][aria-selected="true"] {
+  outline: 2px solid var(--action-primary-fg, currentColor);
+  outline-offset: 2px;
+  background: transparent;
+  transform: scale(1.25);
+}
+
+[data-carousel-dot]:focus-visible {
+  outline: 2px solid var(--focus-color, currentColor);
+  outline-offset: 2px;
+}
+
+  /*Card Height*/
+  [data-slide] > article {
+    height: 100%;
+  }

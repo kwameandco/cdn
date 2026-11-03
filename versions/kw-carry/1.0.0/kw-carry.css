@@ -1,0 +1,143 @@
+/*! kw-carry v1.0.0 — banner, picker and locked-field styles */
+
+/* Deliberately quiet. This is a generic plugin dropped onto sites with their
+   own type and colour, so it inherits both: no font sizes in px, no hard-coded
+   text colour, one accent that defaults to the host's link colour.
+
+   Every value is a custom property you can redefine anywhere above the banner
+   — a :root block, the mount element, or one page's stylesheet:
+
+     :root { --kw-carry-accent: #e08a3c; --kw-carry-gap: 1rem; } */
+
+:root {
+  --kw-carry-accent: currentColor;
+  --kw-carry-tint: rgba(128, 128, 128, .07);
+  --kw-carry-line: rgba(128, 128, 128, .35);
+  --kw-carry-gap: 1rem;
+  --kw-carry-pad: .75rem 1rem;
+  --kw-carry-thumb: 74px;
+  --kw-carry-radius: 2px;
+}
+
+/*! banner */
+.kw-carry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--kw-carry-gap);
+  margin: 1.5rem 0;
+  padding: var(--kw-carry-pad);
+  border: 1px solid var(--kw-carry-accent);
+  background: var(--kw-carry-tint);
+}
+
+.kw-carry > img {
+  flex: 0 0 auto;
+  width: var(--kw-carry-thumb);
+  aspect-ratio: 3 / 2;
+  height: auto;
+  object-fit: cover;
+}
+
+/* min-width: 0 or a long unbroken value (including the alt text of an image
+   that failed to load) pushes the row wider than its container */
+.kw-carry > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.kw-carry b {
+  display: block;
+  font-weight: 600;
+}
+
+.kw-carry-msg {
+  display: block;
+  font-size: .9em;
+  opacity: .8;
+}
+
+.kw-carry-clear {
+  flex: 0 0 auto;
+  padding: .45em .8em;
+  border: 1px solid var(--kw-carry-line);
+  border-radius: var(--kw-carry-radius);
+  font-size: .85em;
+  white-space: nowrap;
+  text-decoration: none;
+  color: inherit;
+}
+
+/* 44px is the smallest comfortable tap target; below that the button is a
+   coin-toss on a phone */
+@media (max-width: 600px) {
+  .kw-carry {
+    flex-wrap: wrap;
+  }
+
+  .kw-carry-clear {
+    flex: 1 0 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+/*! picker */
+
+/* The real field, visually hidden rather than display:none — it still submits,
+   and a required field that is display:none makes the browser refuse to submit
+   a form while being unable to show the visitor where the problem is. */
+.kw-carry-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.kw-carry-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--kw-carry-gap);
+  margin-top: .5rem;
+  padding: .7rem;
+  border: 1px solid var(--kw-carry-line);
+}
+
+.kw-carry-preview > img {
+  flex: 0 0 auto;
+  width: 86px;
+  aspect-ratio: 3 / 2;
+  height: auto;
+  object-fit: cover;
+}
+
+.kw-carry-preview > div {
+  min-width: 0;
+}
+
+.kw-carry-preview b {
+  display: block;
+  font-weight: 600;
+}
+
+.kw-carry-sub {
+  display: block;
+  font-size: .9em;
+  opacity: .7;
+}
+
+.kw-carry-preview.kw-carry-empty {
+  justify-content: center;
+  opacity: .55;
+  font-size: .9em;
+}
+
+/*! locked field */
+.kw-carry-locked {
+  opacity: .75;
+  cursor: default;
+}

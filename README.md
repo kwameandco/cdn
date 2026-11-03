@@ -1,6 +1,54 @@
 # kwameandco/cdn
 
-Public CDN for static scripts and assets, served via jsDelivr.
+Public CDN for the `kw-*` plugins, served from **`https://cdn.kwameand.co`** (our own domain:
+a Cloudflare Worker with static assets) and, as a fallback until every site has moved, from
+jsDelivr.
+
+## cdn.kwameand.co
+
+```
+https://cdn.kwameand.co/<plugin>/<version>/<file>    cached for a year, never changes
+https://cdn.kwameand.co/<plugin>/latest/<file>       cached for 5 minutes, follows the newest build
+```
+
+For example `https://cdn.kwameand.co/kw-filter/1.6.1/kw-filter.min.js`. Put the versioned URL in
+client embeds. Nothing needs purging: a new release is a new path.
+
+**Versions.** Each file's version is read from its own banner, the semver after the plugin name
+near the top of the unminified source (`/*! kw-filter v1.6.1 */`). The JS and CSS of one plugin
+can carry different versions, and a `.min.*` file shares its source's. A file with no banner gets
+`0.0.0-<hash>` from its contents, so it is still immutable. To see what exists, browse
+[`versions/`](./versions).
+
+**How old versions survive.** `scripts/build-cdn.mjs` copies each file into the committed
+`versions/<plugin>/<version>/` folder the first time that version appears, and never overwrites
+it. Each deploy uploads that whole archive plus a fresh `latest/`, so no version ever disappears.
+If a file changes without a banner bump, the archived copy is kept, `latest` gets the change and
+the workflow run shows a warning: bump the banner in `kwameandco/clients`.
+
+**Headers.** Every file: `Access-Control-Allow-Origin: *`, `X-Content-Type-Options: nosniff`,
+`Cross-Origin-Resource-Policy: cross-origin`, `X-Robots-Tag: noindex`, no cookies. A missing file
+is a `404` with `Cache-Control: no-store`.
+
+**Deploy.** The publish workflow's last step runs `npx wrangler deploy`, using the repo secrets
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Without them it skips with a notice and the
+jsDelivr publish is unaffected. One-time setup: [`CLOUDFLARE.md`](./CLOUDFLARE.md).
+
+### Processors
+
+| Vendor | Personal data | Where | Transfer basis | DPA |
+|---|---|---|---|---|
+| Cloudflare (cdn.kwameand.co) | Visitor IP and request headers, in transit only. Worker logs, traces and observability are off, so we store none. | Global edge network | EU SCCs and UK addendum in Cloudflare's DPA; Cloudflare is also certified under the EU-US Data Privacy Framework | https://www.cloudflare.com/cloudflare-customer-dpa/ |
+| jsDelivr (fallback, being retired) | Visitor IP on every page load | Global (multi-CDN) | None in place | None. This is why we are moving off it. |
+| GitHub | None of visitors'. Hosts this repo's source. | US | n/a for visitor data | n/a |
+
+Whether a cross-origin request to our own Cloudflare-hosted CDN needs consent is each client's
+call to confirm (`kwameandco/clients` → `tasks/open/44`). We think it does not, because
+Cloudflare is our processor under contract.
+
+---
+
+## jsDelivr (fallback)
 
 This repo is **write-only for humans** — plugin files are written by this repo's own workflow, `.github/workflows/publish-plugins.yml`, which reads `kwameandco/clients/plugins/` and minifies from there. You should never need to edit plugin files here by hand.
 
@@ -39,9 +87,15 @@ https://purge.jsdelivr.net/gh/kwameandco/cdn@main/<folder>/<file>
 
 ```
 cdn/
-└── kw-filter/
-    ├── kw-filter.js        ← unminified source (for debugging)
-    └── kw-filter.min.js    ← minified (use this in production)
+├── kw-filter/
+│   ├── kw-filter.js        ← unminified source (for debugging)
+│   └── kw-filter.min.js    ← minified (use this in production)
+├── versions/               ← immutable archive for cdn.kwameand.co; never edit or delete
+│   └── kw-filter/1.6.1/kw-filter.min.js
+├── scripts/build-cdn.mjs   ← archives new versions, builds dist/ (gitignored) + _headers
+├── src/not-found.js        ← the only Worker code: an uncacheable 404 for misses
+├── wrangler.jsonc          ← the kwameandco-cdn Worker, custom domain cdn.kwameand.co
+└── CLOUDFLARE.md           ← one-time setup: API token, secrets, domain, checks
 ```
 
 One folder per plugin or tool. Each folder should contain at minimum a minified file; include the unminified source too so it's inspectable from the browser.

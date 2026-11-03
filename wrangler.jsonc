@@ -1,0 +1,23 @@
+// cdn.kwameand.co: the kw-* plugins on our own domain. Static assets answer every real file, with
+// headers from _headers (written into dist/ by scripts/build-cdn.mjs). The script in `main` runs
+// only when no file matches, to send an uncacheable 404 (see src/not-found.js).
+// Deployed by .github/workflows/publish-plugins.yml with `npx wrangler deploy`; one-time setup in
+// CLOUDFLARE.md. The account comes from the CLOUDFLARE_ACCOUNT_ID secret, not this file.
+{
+  "name": "kwameandco-cdn",
+  // Not newer than the workerd that the pinned wrangler ships, or `wrangler dev` refuses to start.
+  "compatibility_date": "2026-10-20",
+  "main": "./src/not-found.js",
+  "assets": {
+    "directory": "./dist",
+    // Files only: no index.html lookups, no trailing-slash redirects. A miss falls through to `main`.
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+  // Only the custom domain answers. No workers.dev address, no preview URLs.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "cdn.kwameand.co", "custom_domain": true }],
+  // Privacy: no request logs, no traces. Visitor IPs are not stored by us.
+  "observability": { "enabled": false, "logs": { "enabled": false }, "traces": { "enabled": false } }
+}

@@ -23,6 +23,14 @@ name: Publish plugins to CDN
 #
 # Secret: CLIENTS_READ_TOKEN — fine-grained PAT, repository kwameandco/clients
 # only, permission Contents: Read. Nothing else. Stored in this repo's secrets.
+#
+# Our own CDN (2026-11-03): after the jsDelivr publish, the same run archives
+# any new version into versions/ (committed with the sync, never deleted),
+# builds dist/ and deploys it to https://cdn.kwameand.co with wrangler. That
+# needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID; without them the deploy
+# step says so and skips, and jsDelivr carries on exactly as before. Setup:
+# CLOUDFLARE.md. Commits pushed with GITHUB_TOKEN do not start workflows, and
+# this one has no push trigger, so the sync commit cannot set off another run.
 
 on:
   workflow_dispatch:
@@ -129,11 +137,22 @@ jobs:
           echo "Changed files:"
           git diff --staged --name-only | tee changed-files.txt
 
+      - name: Archive new versions and build dist/ for cdn.kwameand.co
+        run: |
+          set -euo pipefail
+          # Copies any file whose version is not yet in versions/ into it (never
+          # overwrites), then rebuilds dist/ = versions/ + <plugin>/latest/ + _headers.
+          # A changed file whose banner was not bumped is a ::warning::, not a failure.
+          node scripts/build-cdn.mjs
+          git add -A -- versions
+
       - name: Dry run — show the diff and stop
         if: ${{ github.event.inputs.dry_run == 'true' }}
         run: |
           git diff --staged --stat
-          echo "Dry run: nothing committed or pushed."
+          # Validates the Worker config and the asset tree; needs no credentials.
+          npx --yes wrangler@4.151.3 deploy --dry-run
+          echo "Dry run: nothing committed, pushed or deployed."
 
       - name: Commit and push
         if: ${{ github.event.inputs.dry_run != 'true' }}
@@ -145,7 +164,7 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          names=$(git diff --staged --name-only | cut -d/ -f1 | sort -u | tr '\n' ' ')
+          names=$(git diff --staged --name-only | cut -d/ -f1 | grep -vx versions | sort -u | tr '\n' ' ' || true)
           git commit -m "chore: sync ${names}$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push
 
@@ -162,3 +181,21 @@ jobs:
             curl -fsS "https://purge.jsdelivr.net/gh/kwameandco/cdn@main/$f" -o /dev/null \
               || echo "purge request failed for $f (non-fatal)"
           done < changed-files.txt
+
+      - name: Deploy to cdn.kwameand.co
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: "false"
+        run: |
+          set -euo pipefail
+          # Last step on purpose: the jsDelivr publish above has already finished,
+          # so nothing here can stop it. Runs even when nothing changed, so the
+          # first run after the secrets are added deploys without waiting for a
+          # plugin change. Uploads are deduplicated, so a no-change deploy is cheap.
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID not set; skipping the cdn.kwameand.co deploy (jsDelivr publish is unaffected). See CLOUDFLARE.md."
+            exit 0
+          fi
+          npx --yes wrangler@4.151.3 deploy

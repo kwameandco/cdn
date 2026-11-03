@@ -1,10 +1,39 @@
 # kwameandco/cdn — Claude instructions
 
 ## What this repo is
-Public CDN only, served through jsDelivr. The plugin folders (`kw-*/`) are written by **this
-repo's own workflow**, `.github/workflows/publish-plugins.yml`, which reads
+Public CDN only, served two ways: **`https://cdn.kwameand.co`** (our own domain, a Cloudflare
+Worker with static assets; the one to use from 2026-11-03) and jsDelivr (the fallback, until the
+last site has moved: `kwameandco/clients` → `tasks/open/44`). The plugin folders (`kw-*/`) are
+written by **this repo's own workflow**, `.github/workflows/publish-plugins.yml`, which reads
 `kwameandco/clients/plugins/` and minifies from there. Do not create or edit plugin files by
 hand — the next publish run overwrites them.
+
+**`versions/` is the immutable archive behind `cdn.kwameand.co`.** `scripts/build-cdn.mjs`
+copies each file into `versions/<plugin>/<version>/` the first time that version is seen and
+never touches it again; the deploy uploads the whole archive every time, so every versioned URL
+keeps working. **Never delete, edit or rewrite anything under `versions/`** — a removed file is a
+broken page on a client site. `dist/` is the gitignored build output.
+
+## cdn.kwameand.co
+- URLs: `https://cdn.kwameand.co/<plugin>/<version>/<file>` (cached a year, `immutable`) and
+  `https://cdn.kwameand.co/<plugin>/latest/<file>` (cached 5 minutes). Embeds on client sites
+  use the versioned form; `latest` is for testing.
+- Version = the semver after the plugin's name in the first 2,000 characters of the unminified
+  source (`/*! kw-filter v1.6.1 */` or ` * kw-filter v1.6.1`), per file — a plugin's JS and CSS
+  can differ. No banner: `0.0.0-<10 hex of sha256 of the source>`. The `.min.*` file takes its
+  source's version. Full rule at the top of `scripts/build-cdn.mjs`.
+- A changed file whose banner was not bumped: the archived copy wins, `latest` gets the new one,
+  and the run shows a `::warning::`. The fix is a banner bump in `clients`, never an edit here.
+- Headers come from `dist/_headers` (written by the build script). `src/not-found.js` runs only
+  for misses, so a 404 is `no-store` rather than inheriting the year-long cache.
+- Privacy: no logs, traces or observability (`wrangler.jsonc`), no cookies. Cloudflare is a
+  processor under its DPA; keep it that way. Do not turn logging on to debug — use
+  `npx wrangler dev` locally.
+- Deploy: the workflow's last step, `npx wrangler deploy` (pinned version), using the secrets
+  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Missing secrets = a notice and a skip,
+  never a failure. One-time setup, click by click: `CLOUDFLARE.md`.
+- Local check: `node scripts/build-cdn.mjs`, then `npx wrangler dev` and `curl -I` a path.
+  `compatibility_date` must not be newer than the pinned wrangler's workerd supports.
 
 ## Why the workflow lives here and not in clients (2026-09-21)
 GitHub Actions minutes are metered on **private** repos only, pooled per account. Another
@@ -22,7 +51,8 @@ Merge the plugin work to `clients` main, then run **Publish plugins to CDN** (Ac
 Run workflow, or the GitHub MCP run-trigger tool, or `gh workflow run publish-plugins.yml`).
 Inputs: `plugin` (a folder name, default `all`) and `dry_run` (build and show the diff, push
 nothing). A daily schedule also runs it as a safety net. Only changed files are committed and
-purged; nothing is ever deleted here, so a pinned URL can never break.
+purged; nothing is ever deleted here, so a pinned URL can never break. The same run archives new
+versions into `versions/` and deploys `cdn.kwameand.co`.
 
 **Secret it needs:** `CLIENTS_READ_TOKEN` in this repo's Actions secrets — fine-grained PAT,
 repository `kwameandco/clients` only, permission Contents: Read-only. Without it the run
@@ -48,6 +78,12 @@ Use the format `<script-name>-v<semver>` so tags stay namespaced per script. Pre
 a bare commit SHA in loader embeds: both are immutable on jsDelivr, but a tag says what it is.
 
 ## CDN URL format
+Our own (use this):
+```
+https://cdn.kwameand.co/<folder>/<version>/<file>
+https://cdn.kwameand.co/<folder>/latest/<file>
+```
+jsDelivr (fallback only; it sends visitor IPs to a third party we have no DPA with):
 ```
 https://cdn.jsdelivr.net/gh/kwameandco/cdn@main/<folder>/<file>
 https://cdn.jsdelivr.net/gh/kwameandco/cdn@<tag>/<folder>/<file>
