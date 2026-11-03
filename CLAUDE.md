@@ -67,6 +67,19 @@ versions into `versions/` and deploys `cdn.kwameand.co`.
 repository `kwameandco/clients` only, permission Contents: Read-only. Without it the run
 fails at checkout and publishes nothing.
 
+## Studio rules (restated from kwameandco/clients)
+
+This repo has no site of its own, so only the rules that apply here are restated. The rest live in
+`kwameandco/clients/CLAUDE.md`; where they disagree, that file wins.
+
+1. **Deterministic first: spend AI only where it earns it.** A step done twice by AI becomes a
+   script or a check (propose it, log it in the `clients` task inbox). No model call in a build or
+   a scheduled job when a rule would do. Cheaper surface first: `grep`, then a local script, then
+   MCP. Full rule: clients `CLAUDE.md` → *Deterministic first*.
+2. **Written for humans.** Read `docs/HOW-IT-WORKS.md` before changing how anything works, and
+   update it in the same commit as any change to how something is built, deployed, configured or
+   edited. Full rule: clients `CLAUDE.md` → *Written for humans*.
+
 ## Your job here
 - Checking what version of a script is live (fetch the `.min.js`, read the `/*! … vX.Y.Z */`
   banner)
