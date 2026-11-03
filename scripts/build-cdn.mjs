@@ -22,7 +22,22 @@
 //                                        Both live OUTSIDE versions/ because they change; versions/ never does.
 //   dist/                                GITIGNORED. What wrangler uploads: versions/ copied as is,
 //                                        plus <plugin>/latest/<file> from the current kw-*/ folders,
+//                                        plus <plugin>/<major>/<file> channel copies (below),
 //                                        plus the _headers file.
+//
+// Major-version channels (decided 2026-11-03): /<plugin>/<major>/<file>, e.g. /kw-filter/1/kw-filter.min.js,
+// is a COPY, made into dist/ only (never into versions/), of the newest archived release of that file
+// whose major number is <major>. Rules:
+//   - Only real release banners count: x.y.z with major >= 1. Banner-less 0.0.0-<hash> versions never
+//     do, prereleases (1.7.0-beta.1) never do (a beta must not reach client pages), and major 0 gets
+//     no channel (0.x makes no compatibility promise, so there is nothing for a channel to promise).
+//   - A new major never moves an old channel: /1/ keeps following 1.x.y after 2.0.0 exists; /2/ appears.
+//     A breaking change therefore needs a new major in the banner, and sites move to it by editing
+//     their embed on purpose.
+//   - Per file, like versions: kw-giftshop.js and kw-giftshop.css can sit on different releases.
+//   - Cached 5 minutes like latest/ (see the _headers rules), so a release reaches sites within minutes.
+//   - The channel -> version mapping is written into index.json (`channels` on each file) so a person
+//     or agent can see what /1/ currently serves.
 //
 // Versioning rule (per file, not per plugin: kw-giftshop.js and kw-giftshop.css carry different
 // versions):
@@ -118,6 +133,16 @@ function compareSemver(a, b) {
   if (!bp) return -1;
   return ap < bp ? -1 : 1;
 }
+// Newest real release per major: { "1": "1.6.1", "2": "2.0.1" }. See the channel rules at the top.
+export function channelsOf(versionNames) {
+  const channels = {};
+  for (const v of versionNames.filter(isBannerVersion)) {
+    const m = v.match(SEMVER);
+    if (m[4] || +m[1] < 1) continue; // prerelease, or major 0: no channel
+    if (!channels[m[1]] || compareSemver(v, channels[m[1]]) > 0) channels[m[1]] = v;
+  }
+  return Object.fromEntries(Object.entries(channels).sort(([a], [b]) => +a - +b));
+}
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
 function buildIndex() {
@@ -140,7 +165,7 @@ function buildIndex() {
       const banner = Object.keys(all).filter(isBannerVersion).sort(compareSemver);
       const versions = {};
       for (const v of [...banner, ...Object.keys(all).filter((v) => !isBannerVersion(v)).sort()]) versions[v] = all[v];
-      plugins[plugin][file] = { latest: banner.at(-1) ?? null, versions };
+      plugins[plugin][file] = { latest: banner.at(-1) ?? null, channels: channelsOf(Object.keys(all)), versions };
       out[`renovate/${plugin}/${file}.json`] =
         JSON.stringify(
           {
@@ -159,7 +184,8 @@ function buildIndex() {
         about:
           'Every archived kw-* plugin file and its sha256, derived from versions/ by scripts/build-cdn.mjs. ' +
           'File URL: https://raw.githubusercontent.com/kwameandco/cdn/main/versions/<plugin>/<version>/<file> ' +
-          '(build time) or https://cdn.kwameand.co/<plugin>/<version>/<file>. "latest" ignores banner-less 0.0.0-<hash> versions.',
+          '(build time) or https://cdn.kwameand.co/<plugin>/<version>/<file>. "latest" ignores banner-less 0.0.0-<hash> versions. ' +
+          '"channels" maps a major number to the newest release of that major, served at https://cdn.kwameand.co/<plugin>/<major>/<file> (5-minute cache).',
         plugins,
       },
       null,
@@ -218,9 +244,32 @@ for (const [plugin, file] of latest) {
   cpSync(join(ROOT, plugin, file), target);
 }
 
+// Major-version channels, copied from the archive (versions/ is the only source, so a channel can
+// never serve a file that is not archived and immutable). Reads the index just written above.
+const channelRules = []; // [plugin, major]
+const channelSeen = new Set();
+const indexNow = JSON.parse(readFileSync(join(ROOT, 'index.json'), 'utf8')).plugins;
+let channelFiles = 0;
+for (const [plugin, files] of Object.entries(indexNow)) {
+  for (const [file, info] of Object.entries(files)) {
+    for (const [major, version] of Object.entries(info.channels)) {
+      const target = join(DIST, plugin, major, file);
+      mkdirSync(dirname(target), { recursive: true });
+      cpSync(join(VERSIONS, plugin, version, file), target);
+      channelFiles++;
+      if (!channelSeen.has(`${plugin}/${major}`)) {
+        channelSeen.add(`${plugin}/${major}`);
+        channelRules.push([plugin, major]);
+      }
+    }
+  }
+}
+
 // Header rules. Every matching rule applies and repeated headers are comma-joined, so the latest/
 // rule detaches the long Cache-Control before setting the short one. Two path rules only, so the
-// 100-rule limit never comes into it however many versions pile up. Content-Type is Cloudflare's
+// 100-rule limit never comes into it however many versions pile up. Channels need one rule each
+// (`/kw-filter/1/*`): a placeholder like /:plugin/:major/* would also match every version folder and
+// strip its immutable cache. Fine at ~20; the build fails past 90 so the limit is never hit silently. Content-Type is Cloudflare's
 // own (text/javascript, text/css), from the extension.
 writeFileSync(
   join(DIST, '_headers'),
@@ -236,11 +285,21 @@ writeFileSync(
     '  ! Cache-Control',
     `  Cache-Control: ${SHORT_CACHE}`,
     '',
+    ...channelRules.flatMap(([plugin, major]) => [
+      `/${plugin}/${major}/*`,
+      '  ! Cache-Control',
+      `  Cache-Control: ${SHORT_CACHE}`,
+      '',
+    ]),
   ].join('\n'),
 );
+if (2 + channelRules.length > 90) {
+  console.error(`::error::${2 + channelRules.length} _headers rules; Cloudflare allows 100. Collapse the channel rules.`);
+  process.exit(1);
+}
 
 const count = (d) => readdirSync(d, { recursive: true }).filter((p) => !isDir(join(d, p))).length;
 console.log(
-  `dist/ built: ${plugins.length} plugins, ${latest.length} latest files, ` +
+  `dist/ built: ${plugins.length} plugins, ${latest.length} latest files, ${channelFiles} channel files, ` +
     `${existsSync(VERSIONS) ? count(VERSIONS) : 0} archived files; ${added} newly archived, ${conflicts} unbumped change(s).`,
 );

@@ -7,12 +7,31 @@ jsDelivr.
 ## cdn.kwameand.co
 
 ```
-https://cdn.kwameand.co/<plugin>/<version>/<file>    cached for a year, never changes
-https://cdn.kwameand.co/<plugin>/latest/<file>       cached for 5 minutes, follows the newest build
+https://cdn.kwameand.co/<plugin>/<major>/<file>      cached for 5 minutes, newest release of that major (the default)
+https://cdn.kwameand.co/<plugin>/<version>/<file>    cached for a year, never changes (pin)
+https://cdn.kwameand.co/<plugin>/latest/<file>       cached for 5 minutes, follows the newest build (testing only)
 ```
 
-For example `https://cdn.kwameand.co/kw-filter/1.6.1/kw-filter.min.js`. Put the versioned URL in
-client embeds. Nothing needs purging: a new release is a new path.
+**Which one goes in an embed.** Client embeds on Webflow, Webstudio and Squarespace use the
+**major-version channel**, for example `https://cdn.kwameand.co/kw-filter/1/kw-filter.min.js`
+(decided 2026-11-03). Fixes and features inside `1.x.y` reach every site within about five minutes
+with no per-site edit. A breaking change is released as `2.0.0`, which appears at `/2/` and never
+moves `/1/`, so no site changes behaviour unless someone edits its embed on purpose. **Pin an exact
+version** (`/kw-filter/1.6.1/...`) only when a site must not move at all; the cost is that every
+update to that site is a manual edit. `/latest/` is for testing on a staging page, never on a client
+page. Channels and `latest` need no purge: they are just a short cache. Versioned paths need none
+either.
+
+**Channel rules.** A channel `/<plugin>/<major>/<file>` serves the newest archived release of that
+file whose major number is `<major>`, decided per file (a plugin's JS and CSS can be on different
+releases). Only real release banners count: a banner-less `0.0.0-<hash>` file, a prerelease such as
+`1.7.0-beta.1`, and any `0.x.y` release get no channel (`0.x` promises no compatibility). A new major
+never moves an older channel. So **a breaking change must bump the major in the banner**; if it
+ships as a minor, every site on that channel breaks at once. A bad non-breaking release also reaches
+every site at once; the rollback is to republish the previous code as a new, higher patch (the archive
+is append-only, so the bad version stays at its own URL). Because the file behind a channel moves,
+**SRI (`integrity=`) cannot be used on a channel URL**; it still works on a pinned version. What a
+channel serves right now is in [`index.json`](./index.json) (`channels` on each file).
 
 **Versions.** Each file's version is read from its own banner, the semver after the plugin name
 near the top of the unminified source (`/*! kw-filter v1.6.1 */`). The JS and CSS of one plugin
@@ -22,12 +41,17 @@ can carry different versions, and a `.min.*` file shares its source's. A file wi
 
 **How old versions survive.** `scripts/build-cdn.mjs` copies each file into the committed
 `versions/<plugin>/<version>/` folder the first time that version appears, and never overwrites
-it. Each deploy uploads that whole archive plus a fresh `latest/`, so no version ever disappears.
+it. Each deploy uploads that whole archive plus a fresh `latest/` and the channel copies (made into
+`dist/` from the archive, never written into `versions/`), so no version ever disappears.
 If a file changes without a banner bump, the archived copy is kept, `latest` gets the change and
 the workflow run shows a warning: bump the banner in `kwameandco/clients`.
 
 **Headers.** Every file: `Access-Control-Allow-Origin: *`, `X-Content-Type-Options: nosniff`,
-`Cross-Origin-Resource-Policy: cross-origin`, `X-Robots-Tag: noindex`, no cookies. A missing file
+`Cross-Origin-Resource-Policy: cross-origin`, `X-Robots-Tag: noindex`, no cookies. `Cache-Control` is
+a year and `immutable` for versioned paths, `max-age=300` for `latest` and for each channel (the
+build writes one `_headers` rule per channel, such as `/kw-filter/1/*`, because a wildcard like
+`/:plugin/:major/*` would also match version folders; the build fails past 90 rules, Cloudflare's
+limit being 100). A missing file
 is a `404` with `Cache-Control: no-store`.
 
 **Deploy.** The publish workflow's last step runs `npx wrangler deploy`, using the repo secrets
@@ -46,8 +70,9 @@ GitHub or jsDelivr, so there is no CDN processor at all. How a site does it:
 Two derived outputs here make that work. `scripts/build-cdn.mjs` rewrites both from `versions/`
 on every run (they live outside `versions/` because they change; `versions/` never does):
 
-- **`index.json`**: every plugin file, every archived version, its sha256, and the newest banner
-  version (`latest`). Read it to pin a file by hand.
+- **`index.json`**: every plugin file, every archived version, its sha256, the newest banner
+  version (`latest`) and the `channels` map (major number to the release it serves). Read it to pin
+  a file by hand or to see what `/1/` serves.
 - **`renovate/<plugin>/<file>.json`**: one per plugin file, in Renovate's
   [custom datasource](https://docs.renovatebot.com/modules/datasource/custom/) format
   (`{"releases": [{"version", "digest"}]}`, the digest being the sha256). A site's Renovate reads

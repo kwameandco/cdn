@@ -15,9 +15,19 @@ keeps working. **Never delete, edit or rewrite anything under `versions/`** — 
 broken page on a client site. `dist/` is the gitignored build output.
 
 ## cdn.kwameand.co
-- URLs: `https://cdn.kwameand.co/<plugin>/<version>/<file>` (cached a year, `immutable`) and
-  `https://cdn.kwameand.co/<plugin>/latest/<file>` (cached 5 minutes). Embeds on client sites
-  use the versioned form; `latest` is for testing.
+- URLs: `https://cdn.kwameand.co/<plugin>/<version>/<file>` (cached a year, `immutable`),
+  `https://cdn.kwameand.co/<plugin>/<major>/<file>` (the **major-version channel**, cached 5 minutes,
+  decided 2026-11-03) and `https://cdn.kwameand.co/<plugin>/latest/<file>` (cached 5 minutes).
+  **Embeds on client sites (Webflow, Webstudio, Squarespace) use the channel, e.g. `/kw-filter/1/kw-filter.min.js`.**
+  Pin an exact version only when a site must not move. `latest` is for testing, never a client page.
+  Breaking changes are a new major in the banner, so sites never break silently; a new major never
+  moves an old channel.
+- Channels: `scripts/build-cdn.mjs` copies, per file, the newest archived release of each major (>= 1,
+  real `x.y.z` only: no `0.0.0-<hash>`, no prereleases, no `0.x`) into `dist/<plugin>/<major>/`, and
+  writes the mapping to `index.json` (`channels`). Source is `versions/`, which is never written to.
+  Each channel needs its own `_headers` rule (a `/:plugin/:major/*` placeholder would also hit version
+  folders and drop their immutable cache); the build errors past 90 rules. SRI cannot be used on a
+  channel URL. If a release is bad, republish the fix as a higher patch: the archive is append-only.
 - Version = the semver after the plugin's name in the first 2,000 characters of the unminified
   source (`/*! kw-filter v1.6.1 */` or ` * kw-filter v1.6.1`), per file — a plugin's JS and CSS
   can differ. No banner: `0.0.0-<10 hex of sha256 of the source>`. The `.min.*` file takes its
@@ -102,7 +112,8 @@ a bare commit SHA in loader embeds: both are immutable on jsDelivr, but a tag sa
 ## CDN URL format
 Our own (use this):
 ```
-https://cdn.kwameand.co/<folder>/<version>/<file>
+https://cdn.kwameand.co/<folder>/<major>/<file>      default for client embeds, 5-minute cache
+https://cdn.kwameand.co/<folder>/<version>/<file>    exact pin, immutable
 https://cdn.kwameand.co/<folder>/latest/<file>
 ```
 jsDelivr (fallback only; it sends visitor IPs to a third party we have no DPA with):

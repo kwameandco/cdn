@@ -36,8 +36,12 @@ Why this lives in a public repo and not in `clients`: GitHub Actions minutes are
 repos only and shared across the account; on public repos they are free. When another private repo used
 up the month, the old publish silently failed for six weeks (2026-09-21).
 
-URL shapes: `https://cdn.kwameand.co/<plugin>/<version>/<file>` (cached a year) and
-`.../<plugin>/latest/<file>` (cached 5 minutes). Embeds on client sites use the versioned form.
+URL shapes: `https://cdn.kwameand.co/<plugin>/<version>/<file>` (cached a year), plus
+`.../<plugin>/<major>/<file>` (the major-version channel: newest release of that major, cached 5 minutes,
+the default for client embeds on Webflow, Webstudio and Squarespace) and `.../<plugin>/latest/<file>`
+(cached 5 minutes, testing only). Pin the versioned form only when a site must not move. Channel copies
+are built into `dist/` from `versions/` by `scripts/build-cdn.mjs` (real `x.y.z` banners with major 1 or
+more only), and `index.json` lists what each channel serves. A breaking change must bump the major.
 The version is read from the banner in the source (`/*! kw-filter v1.6.1 */`); no banner gives a
 `0.0.0-<hash>` version.
 
@@ -67,7 +71,7 @@ GitHub stops scheduled runs after 60 days without a commit here, and a manual ru
 
 You do not edit files here. Plugin files are edited in `kwameandco/clients` under `plugins/<name>/`, then
 published by the workflow. A file changed without a banner bump keeps its archived copy; only `latest`
-changes and the run shows a warning. Fix by bumping the banner in `clients`.
+changes (channels follow the archive, so they do not move either) and the run shows a warning. Fix by bumping the banner in `clients`.
 
 ## Outside accounts, services and secrets
 
