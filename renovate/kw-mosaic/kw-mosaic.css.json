@@ -1,0 +1,10 @@
+{
+  "sourceUrl": "https://github.com/kwameandco/cdn",
+  "homepage": "https://github.com/kwameandco/cdn/tree/main/versions/kw-mosaic",
+  "releases": [
+    {
+      "version": "1.0.1",
+      "digest": "15d8e31092ba9df0bb8aa543c4fb973a16d481db8e47917e72f90fcd522676b4"
+    }
+  ]
+}

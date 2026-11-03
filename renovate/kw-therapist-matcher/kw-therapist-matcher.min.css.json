@@ -1,0 +1,10 @@
+{
+  "sourceUrl": "https://github.com/kwameandco/cdn",
+  "homepage": "https://github.com/kwameandco/cdn/tree/main/versions/kw-therapist-matcher",
+  "releases": [
+    {
+      "version": "1.2.1",
+      "digest": "a1f60a8f39ae0a14b6f59a088fa88ed1029138ec0eb36fd7051d4571277c506e"
+    }
+  ]
+}

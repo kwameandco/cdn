@@ -143,8 +143,10 @@ jobs:
           # Copies any file whose version is not yet in versions/ into it (never
           # overwrites), then rebuilds dist/ = versions/ + <plugin>/latest/ + _headers.
           # A changed file whose banner was not bumped is a ::warning::, not a failure.
+          # Also rewrites index.json and renovate/<plugin>/<file>.json from versions/: the version
+          # list and sha256 per file that Astro sites' Renovate reads to open plugin update PRs.
           node scripts/build-cdn.mjs
-          git add -A -- versions
+          git add -A -- versions index.json renovate
 
       - name: Dry run — show the diff and stop
         if: ${{ github.event.inputs.dry_run == 'true' }}
@@ -164,7 +166,7 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          names=$(git diff --staged --name-only | cut -d/ -f1 | grep -vx versions | sort -u | tr '\n' ' ' || true)
+          names=$(git diff --staged --name-only | cut -d/ -f1 | grep -vxE 'versions|index.json|renovate' | sort -u | tr '\n' ' ' || true)
           git commit -m "chore: sync ${names}$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push
 

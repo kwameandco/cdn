@@ -1,0 +1,10 @@
+{
+  "sourceUrl": "https://github.com/kwameandco/cdn",
+  "homepage": "https://github.com/kwameandco/cdn/tree/main/versions/kw-carry",
+  "releases": [
+    {
+      "version": "1.0.0",
+      "digest": "2b6cb642081bd38feff79461e93927304ad29549aeb5e1b0314fc52f40cccddc"
+    }
+  ]
+}

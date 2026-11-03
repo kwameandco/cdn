@@ -1,0 +1,10 @@
+{
+  "sourceUrl": "https://github.com/kwameandco/cdn",
+  "homepage": "https://github.com/kwameandco/cdn/tree/main/versions/kw-rowexpand",
+  "releases": [
+    {
+      "version": "1.1.1",
+      "digest": "d80817f55ded06465ebfe062c23bd8f6393152cd83510f5e14d30af12c5732b2"
+    }
+  ]
+}

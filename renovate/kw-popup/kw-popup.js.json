@@ -1,0 +1,10 @@
+{
+  "sourceUrl": "https://github.com/kwameandco/cdn",
+  "homepage": "https://github.com/kwameandco/cdn/tree/main/versions/kw-popup",
+  "releases": [
+    {
+      "version": "1.0.0",
+      "digest": "08911effd928ced9c6a5bcb988113135eeb545866f85e02afae9e8f495e566b7"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "sourceUrl": "https://github.com/kwameandco/cdn",
+  "homepage": "https://github.com/kwameandco/cdn/tree/main/versions/kw-announcement",
+  "releases": [
+    {
+      "version": "1.2.0",
+      "digest": "8d645f20cd2246e503db5f98cbbf3ffed50e32c6fe68dd2f194008772ff74fe9"
+    }
+  ]
+}

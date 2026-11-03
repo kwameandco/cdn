@@ -1,0 +1,10 @@
+{
+  "sourceUrl": "https://github.com/kwameandco/cdn",
+  "homepage": "https://github.com/kwameandco/cdn/tree/main/versions/kw-tooltip",
+  "releases": [
+    {
+      "version": "2.0.1",
+      "digest": "126a4f52a39aa7f8b3da964dfac1000e2c63216cee402b8171ec87caf915f2e6"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "sourceUrl": "https://github.com/kwameandco/cdn",
+  "homepage": "https://github.com/kwameandco/cdn/tree/main/versions/kw-modal",
+  "releases": [
+    {
+      "version": "1.0.0",
+      "digest": "f083aa06164ec51d94f97a102ca750dbb667c38292d8067bb90863ea1879be0d"
+    }
+  ]
+}

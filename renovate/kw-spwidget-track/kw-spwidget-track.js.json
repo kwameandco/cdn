@@ -1,0 +1,10 @@
+{
+  "sourceUrl": "https://github.com/kwameandco/cdn",
+  "homepage": "https://github.com/kwameandco/cdn/tree/main/versions/kw-spwidget-track",
+  "releases": [
+    {
+      "version": "1.0.0",
+      "digest": "26a850340d3a13e7e097312fff953ac7d2f3d14c1746275171803807eb709daa"
+    }
+  ]
+}

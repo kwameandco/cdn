@@ -34,6 +34,28 @@ is a `404` with `Cache-Control: no-store`.
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Without them it skips with a notice and the
 jsDelivr publish is unaffected. One-time setup: [`CLOUDFLARE.md`](./CLOUDFLARE.md).
 
+### Self-hosted on Astro sites: `index.json` and `renovate/`
+
+Astro sites do not load plugins from any CDN. Each one pins plugin files in its own
+`plugins.json`, downloads them **at build time** from
+`https://raw.githubusercontent.com/kwameandco/cdn/main/versions/<plugin>/<version>/<file>`, checks
+each file's sha256, and serves it from its own domain. A visitor's browser never talks to us,
+GitHub or jsDelivr, so there is no CDN processor at all. How a site does it:
+`kwameandco/site-starter` → `docs/PLUGINS.md`.
+
+Two derived outputs here make that work. `scripts/build-cdn.mjs` rewrites both from `versions/`
+on every run (they live outside `versions/` because they change; `versions/` never does):
+
+- **`index.json`**: every plugin file, every archived version, its sha256, and the newest banner
+  version (`latest`). Read it to pin a file by hand.
+- **`renovate/<plugin>/<file>.json`**: one per plugin file, in Renovate's
+  [custom datasource](https://docs.renovatebot.com/modules/datasource/custom/) format
+  (`{"releases": [{"version", "digest"}]}`, the digest being the sha256). A site's Renovate reads
+  these and opens a PR that bumps version **and** sha256 together. Banner-less `0.0.0-<hash>`
+  versions are left out, since a hash has no order: give a plugin a banner to get update PRs.
+
+`node scripts/build-cdn.mjs --check` also fails if either is out of date.
+
 ### Processors
 
 | Vendor | Personal data | Where | Transfer basis | DPA |

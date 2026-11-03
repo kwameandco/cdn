@@ -35,6 +35,15 @@ broken page on a client site. `dist/` is the gitignored build output.
 - Local check: `node scripts/build-cdn.mjs`, then `npx wrangler dev` and `curl -I` a path.
   `compatibility_date` must not be newer than the pinned wrangler's workerd supports.
 
+## index.json and renovate/ (self-hosting on Astro sites, 2026-11-03)
+Astro sites self-host plugins: their `plugins.json` pins `<plugin>/<file>` + version + sha256, and a
+build-time script downloads `versions/<plugin>/<version>/<file>` from raw.githubusercontent.com
+(`kwameandco/site-starter` → `docs/PLUGINS.md`). `index.json` (all files, versions, sha256) and
+`renovate/<plugin>/<file>.json` (Renovate custom-datasource feeds) are **derived**: build-cdn.mjs
+rewrites them from `versions/` on every run and the workflow commits them. Never hand-edit them,
+and never rename or move `renovate/` or `versions/`: every site's Renovate config and fetch script
+point at those paths in this public repo.
+
 ## Why the workflow lives here and not in clients (2026-09-21)
 GitHub Actions minutes are metered on **private** repos only, pooled per account. Another
 private repo's CI spent the whole month's allowance in August and September, and every

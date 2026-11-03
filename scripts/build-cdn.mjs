@@ -10,6 +10,16 @@
 //                                        once and never touched again, so every versioned URL keeps
 //                                        working for ever even though dist/ is rebuilt from scratch
 //                                        on every run. Never delete or edit anything under it.
+//   index.json                           COMMITTED, REWRITTEN EVERY RUN (derived from versions/): every
+//                                        plugin file, every archived version, and its sha256. What an
+//                                        agent or a site's fetch script reads to pin a version.
+//   renovate/<plugin>/<file>.json        COMMITTED, REWRITTEN EVERY RUN: the same, one file per plugin
+//                                        file, in Renovate's custom-datasource format ({releases:
+//                                        [{version, digest}]}). Astro sites self-host plugins pinned in
+//                                        their plugins.json; Renovate reads these to open update PRs.
+//                                        Banner-less 0.0.0-<hash> versions are left out: a hash has no
+//                                        order, so Renovate could "upgrade" to an older file.
+//                                        Both live OUTSIDE versions/ because they change; versions/ never does.
 //   dist/                                GITIGNORED. What wrangler uploads: versions/ copied as is,
 //                                        plus <plugin>/latest/<file> from the current kw-*/ folders,
 //                                        plus the _headers file.
@@ -95,10 +105,108 @@ for (const plugin of plugins) {
   }
 }
 
-if (CHECK) {
-  console.log(`${added} file(s) would be added to versions/, ${conflicts} unbumped change(s).`);
-  process.exit(added ? 1 : 0);
+// ---- index.json and renovate/ feeds, derived from versions/ (plus what would be added in --check) ----
+
+const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
+const isBannerVersion = (v) => SEMVER.test(v) && !v.startsWith('0.0.0-');
+function compareSemver(a, b) {
+  const [, a1, a2, a3, ap] = a.match(SEMVER);
+  const [, b1, b2, b3, bp] = b.match(SEMVER);
+  for (const [x, y] of [[a1, b1], [a2, b2], [a3, b3]]) if (+x !== +y) return +x - +y;
+  if (ap === bp) return 0;
+  if (!ap) return 1; // a release sorts above its prereleases
+  if (!bp) return -1;
+  return ap < bp ? -1 : 1;
 }
+const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+
+function buildIndex() {
+  const index = {}; // plugin -> file -> version -> sha256
+  if (existsSync(VERSIONS)) {
+    for (const plugin of readdirSync(VERSIONS).filter((n) => isDir(join(VERSIONS, n))).sort()) {
+      for (const version of readdirSync(join(VERSIONS, plugin)).filter((n) => isDir(join(VERSIONS, plugin, n)))) {
+        for (const file of readdirSync(join(VERSIONS, plugin, version)).sort()) {
+          ((index[plugin] ??= {})[file] ??= {})[version] = sha256(readFileSync(join(VERSIONS, plugin, version, file)));
+        }
+      }
+    }
+  }
+  const out = {}; // relative path -> text
+  const plugins = {};
+  for (const plugin of Object.keys(index).sort()) {
+    plugins[plugin] = {};
+    for (const file of Object.keys(index[plugin]).sort()) {
+      const all = index[plugin][file];
+      const banner = Object.keys(all).filter(isBannerVersion).sort(compareSemver);
+      const versions = {};
+      for (const v of [...banner, ...Object.keys(all).filter((v) => !isBannerVersion(v)).sort()]) versions[v] = all[v];
+      plugins[plugin][file] = { latest: banner.at(-1) ?? null, versions };
+      out[`renovate/${plugin}/${file}.json`] =
+        JSON.stringify(
+          {
+            sourceUrl: 'https://github.com/kwameandco/cdn',
+            homepage: `https://github.com/kwameandco/cdn/tree/main/versions/${plugin}`,
+            releases: banner.map((version) => ({ version, digest: all[version] })),
+          },
+          null,
+          2,
+        ) + '\n';
+    }
+  }
+  out['index.json'] =
+    JSON.stringify(
+      {
+        about:
+          'Every archived kw-* plugin file and its sha256, derived from versions/ by scripts/build-cdn.mjs. ' +
+          'File URL: https://raw.githubusercontent.com/kwameandco/cdn/main/versions/<plugin>/<version>/<file> ' +
+          '(build time) or https://cdn.kwameand.co/<plugin>/<version>/<file>. "latest" ignores banner-less 0.0.0-<hash> versions.',
+        plugins,
+      },
+      null,
+      2,
+    ) + '\n';
+  return out;
+}
+
+function writeIndex() {
+  const out = buildIndex();
+  let stale = 0;
+  const wanted = new Set(Object.keys(out));
+  // Remove feeds whose file no longer exists in versions/ (cannot happen while versions/ is append-only,
+  // but keeps renovate/ an exact function of versions/).
+  if (existsSync(join(ROOT, 'renovate'))) {
+    for (const p of readdirSync(join(ROOT, 'renovate'), { recursive: true })) {
+      const rel = `renovate/${p}`.replace(/\\/g, '/');
+      if (!isDir(join(ROOT, rel)) && !wanted.has(rel)) {
+        stale++;
+        if (!CHECK) rmSync(join(ROOT, rel));
+      }
+    }
+  }
+  for (const [rel, text] of Object.entries(out)) {
+    const target = join(ROOT, rel);
+    if (existsSync(target) && readFileSync(target, 'utf8') === text) continue;
+    stale++;
+    if (!CHECK) {
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, text);
+    }
+  }
+  return stale;
+}
+
+if (CHECK) {
+  // In --check, versions/ has not been written, so the index is checked against the archive as it is.
+  const stale = writeIndex();
+  console.log(
+    `${added} file(s) would be added to versions/, ${conflicts} unbumped change(s), ` +
+      `${stale} index/feed file(s) out of date.`,
+  );
+  process.exit(added || stale ? 1 : 0);
+}
+
+const staleIndex = writeIndex();
+console.log(`index.json and renovate/: ${staleIndex} file(s) written.`);
 
 // dist/ from scratch: the archive, then latest/, then _headers.
 rmSync(DIST, { recursive: true, force: true });
